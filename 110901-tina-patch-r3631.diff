@@ -1,0 +1,28 @@
+Index: modules/org.pathvisio.core/resources/plugin.png
+===================================================================
+Cannot display: file marked as a binary type.
+svn:mime-type = application/octet-stream
+
+Property changes on: modules/org.pathvisio.core/resources/plugin.png
+___________________________________________________________________
+Added: svn:mime-type
+   + application/octet-stream
+
+Index: modules/org.pathvisio.desktop/META-INF/MANIFEST.MF
+===================================================================
+--- modules/org.pathvisio.desktop/META-INF/MANIFEST.MF	(revision 3631)
++++ modules/org.pathvisio.desktop/META-INF/MANIFEST.MF	(working copy)
+@@ -4,12 +4,8 @@
+ Bundle-SymbolicName: org.pathvisio.desktop
+ Bundle-Version: 2.0.11
+ Bundle-Activator: org.pathvisio.desktop.Activator
+-Export-Package: com,
+- com.nexes,
+- com.nexes.test,
++Export-Package: com.nexes.test,
+  com.nexes.wizard,
+- org,
+- org.pathvisio,
+  org.pathvisio.desktop,
+  org.pathvisio.desktop.data,
+  org.pathvisio.desktop.gex,

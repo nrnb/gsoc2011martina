@@ -1,0 +1,578 @@
+Index: tools/KeggConverter/src/org/pathvisio/kegg/KeggFormat.java
+===================================================================
+--- tools/KeggConverter/src/org/pathvisio/kegg/KeggFormat.java	(revision 3625)
++++ tools/KeggConverter/src/org/pathvisio/kegg/KeggFormat.java	(working copy)
+@@ -15,18 +15,6 @@
+ //limitations under the License.
+ package org.pathvisio.kegg;
+ 
+-import com.google.common.collect.HashMultimap;
+-import com.google.common.collect.SetMultimap;
+-
+-import dtd.kegg.Entry;
+-import dtd.kegg.Graphics;
+-import dtd.kegg.Pathway;
+-import dtd.kegg.Product;
+-import dtd.kegg.Reaction;
+-import dtd.kegg.Relation;
+-import dtd.kegg.Substrate;
+-import dtd.kegg.Subtype;
+-
+ import java.awt.Color;
+ import java.awt.geom.Point2D;
+ import java.rmi.RemoteException;
+@@ -48,25 +36,37 @@
+ import org.bridgedb.bio.BioDataSource;
+ import org.bridgedb.bio.Organism;
+ import org.pathvisio.core.debug.Logger;
+-import org.pathvisio.core.model.ConnectorShape.Segment;
+-import org.pathvisio.core.model.ConnectorShape.WayPoint;
+ import org.pathvisio.core.model.ConnectorType;
+ import org.pathvisio.core.model.ConverterException;
+ import org.pathvisio.core.model.DataNodeType;
+ import org.pathvisio.core.model.GpmlFormatAbstract;
+-import org.pathvisio.core.model.GraphLink.GraphIdContainer;
+ import org.pathvisio.core.model.LineStyle;
+ import org.pathvisio.core.model.LineType;
+ import org.pathvisio.core.model.MLine;
+ import org.pathvisio.core.model.ObjectType;
+ import org.pathvisio.core.model.PathwayElement;
++import org.pathvisio.core.model.ShapeType;
++import org.pathvisio.core.model.ConnectorShape.Segment;
++import org.pathvisio.core.model.ConnectorShape.WayPoint;
++import org.pathvisio.core.model.GraphLink.GraphIdContainer;
+ import org.pathvisio.core.model.PathwayElement.MAnchor;
+ import org.pathvisio.core.model.PathwayElement.MPoint;
+-import org.pathvisio.core.model.ShapeType;
+ import org.pathvisio.core.view.LinAlg;
++import org.pathvisio.core.view.MIMShapes;
+ import org.pathvisio.core.view.LinAlg.Point;
+-import org.pathvisio.core.view.MIMShapes;
+ 
++import com.google.common.collect.HashMultimap;
++import com.google.common.collect.SetMultimap;
++
++import dtd.kegg.Entry;
++import dtd.kegg.Graphics;
++import dtd.kegg.Pathway;
++import dtd.kegg.Product;
++import dtd.kegg.Reaction;
++import dtd.kegg.Relation;
++import dtd.kegg.Substrate;
++import dtd.kegg.Subtype;
++
+ /**
+  * File converter for the KGML, the kegg pathway format.
+  */
+@@ -84,9 +84,8 @@
+ 	private double spacing = 2;
+ 
+ 	private KeggService keggService;
+-	private Organism organism;
+ 	private String species;
+-	private String shortName;
++	private String speciesCode;
+ 	private Pathway pathway; //Main pathway
+ 	private Pathway map; //Used only to improve species specific pathway
+ 
+@@ -107,17 +106,14 @@
+ 
+ 	private Map<String, Entry> entriesById = new HashMap<String, Entry>();
+ 
+-	public KeggFormat(Pathway pathway, Organism organism) {
++	public KeggFormat(Pathway pathway, String organism) {
+ 		this.pathway = pathway;
+-		this.organism = organism;
+-		this.shortName = organism.shortName();
+-		this.species = organism.latinName();
++		this.species = organism;
+ 	}
+ 
+-	public KeggFormat(Pathway map, Pathway ko, Organism organism) {
++	public KeggFormat(Pathway map, Pathway ko, String organism) {
+ 		this(ko, organism);
+ 		this.map = map;
+-		this.shortName = organism.shortName();
+ 	}
+ 
+ 	public void setSpacing(double spacing) {
+@@ -155,7 +151,7 @@
+ 				title = title.substring(0, 50);
+ 			}
+ 			mappInfo.setMapInfoName(title);
+-			mappInfo.setOrganism(species);
++			mappInfo.setOrganism(speciesCode);
+ 		}
+ 		mappInfo.setMapInfoDataSource(pathway.getLink()); //KH add url to kgml map
+ 
+@@ -715,14 +711,14 @@
+ 
+ 			for(int i = 0; i < ids.length; i++) {
+ 				String id = ids[i];
+-				String[] genes = getGenes(id, organism, Type.fromString(entry.getType()));
++				String[] genes = getGenes(id, species, Type.fromString(entry.getType()));
+ 
+ 				
+ 				for(String gene : genes) {
+ 					String geneName = dg.getName();
+ 					if(isUseWebservice()) { //fetch the real name from the webservice
+ 						geneName = keggService.getKeggSymbol(
+-								Util.getKeggOrganism(organism) + ":" + gene
++								Util.getKeggOrganism(species) + ":" + gene
+ 						);
+ 					}
+ 					geneName = processLabel(geneName);
+@@ -933,10 +929,14 @@
+ 		return dn;
+ 	}
+ 
+-	private String[] getGenes(String keggId, Organism organism, Type type) throws RemoteException, ConverterException {
+-		if(isUseWebservice() && type != Type.GENE) {
++	private String[] getGenes(String keggId, String organism, Type type) throws RemoteException, ConverterException {
++		boolean isValidGene = type == Type.GENE && keggId.matches("[a-z]{3}:[0-9]+$");
++		
++		if(isUseWebservice() && !isValidGene) {
+ 			if(type == Type.ORTHOLOG) {
+ 				return keggService.getGenesForKo(keggId, organism);
++			} else if(type == Type.GENE) {
++				return keggService.getGenes(keggId, organism);
+ 			} else {
+ 				return keggService.getGenesForEc(keggId, organism);
+ 			}
+Index: tools/KeggConverter/src/org/pathvisio/kegg/Converter.java
+===================================================================
+--- tools/KeggConverter/src/org/pathvisio/kegg/Converter.java	(revision 3625)
++++ tools/KeggConverter/src/org/pathvisio/kegg/Converter.java	(working copy)
+@@ -101,7 +101,8 @@
+ 	public Converter() {
+ 	}
+ 
+-	private Organism getOrganism() {
++	private String getOrganism() {
++		//Try to parse Organism class to support short names for common species
+ 		Organism organism = Organism.fromLatinName(species);
+ 		if(organism == null) {
+ 			//try by short name
+@@ -111,11 +112,8 @@
+ 			//finally, try by code
+ 			organism = Organism.fromCode(species);
+ 		}
+-		if(organism == null) {
+-			//give up and print help
+-			throw new IllegalArgumentException("Couldn't find species: " + species);
+-		}
+-		return organism;
++		if(organism != null) species = organism.latinName();
++		return species;
+ 	}
+ 
+ 	private void recursiveConversion() throws FileNotFoundException, RemoteException, JAXBException, ConverterException, ServiceException,
+Index: tools/KeggConverter/src/org/pathvisio/kegg/Util.java
+===================================================================
+--- tools/KeggConverter/src/org/pathvisio/kegg/Util.java	(revision 3625)
++++ tools/KeggConverter/src/org/pathvisio/kegg/Util.java	(working copy)
+@@ -19,6 +19,8 @@
+ import java.io.ByteArrayInputStream;
+ import java.io.InputStream;
+ import java.util.Collection;
++import java.util.HashMap;
++import java.util.Map;
+ 
+ import javax.xml.bind.JAXBContext;
+ import javax.xml.bind.JAXBException;
+@@ -33,8 +35,8 @@
+ import org.bridgedb.bio.Organism;
+ import org.pathvisio.core.debug.Logger;
+ import org.pathvisio.core.model.ConverterException;
+-import org.pathvisio.core.model.GraphLink.GraphIdContainer;
+ import org.pathvisio.core.model.PathwayElement;
++import org.pathvisio.core.model.GraphLink.GraphIdContainer;
+ import org.pathvisio.core.view.LinAlg;
+ import org.pathvisio.core.view.LinAlg.Point;
+ import org.xml.sax.InputSource;
+@@ -43,49 +45,36 @@
+ import org.xml.sax.helpers.XMLFilterImpl;
+ 
+ public class Util {
+-	static String getKeggOrganism(Organism organism) throws ConverterException {
+-		switch(organism) {
+-		case HomoSapiens:
+-			return "hsa";
+-		case RattusNorvegicus:
+-			return "rno";
+-		case MusMusculus:
+-			return "mmu";
+-		case SaccharomycesCerevisiae:
+-			return "sce";
+-		case ArabidopsisThaliana:
+-			return "ath";
+-		case BosTaurus:
+-			return "bta";
+-		case CaenorhabditisElegans:
+-			return "cel";
+-		case CanisFamiliaris:
+-			return "cfa";
+-		case DanioRerio:
+-			return "dre";
+-		case DrosophilaMelanogaster:
+-			return "dme";
+-		case EscherichiaColi:
+-			return "eco";
+-		case GallusGallus:
+-			return "gga";
+-		case OryzaSativa:
+-			return "osa";
+-		case TriticumAestivum:
+-			return "etae";
+-		case XenopusTropicalis:
+-			return "xtr";
+-		case ZeaMays:
+-			return "ezma";
+-		case MycobacteriumTuberculosis:
+-			return "mtu";
+-		case AnophelesGambiae:
+-			return "aga";
+-		default:
+-			throw new ConverterException("No KEGG code for organism " + organism);
+-		}
++	private static Map<String, String> species2code = new HashMap<String, String>();
++	
++	static {
++		species2code.put(Organism.HomoSapiens.latinName(), "hsa");
++		species2code.put(Organism.RattusNorvegicus.latinName(), "rno");
++		species2code.put(Organism.MusMusculus.latinName(), "mmu");
++		species2code.put(Organism.SaccharomycesCerevisiae.latinName(), "sce");
++		species2code.put(Organism.ArabidopsisThaliana.latinName(), "ath");
++		species2code.put(Organism.BosTaurus.latinName(), "bta");
++		species2code.put(Organism.CaenorhabditisElegans.latinName(), "hsa");
++		species2code.put(Organism.CanisFamiliaris.latinName(), "cfa");
++		species2code.put(Organism.DanioRerio.latinName(), "dre");
++		species2code.put(Organism.DrosophilaMelanogaster.latinName(), "dme");
++		species2code.put(Organism.EscherichiaColi.latinName(), "eco");
++		species2code.put(Organism.GallusGallus.latinName(), "gga");
++		species2code.put(Organism.OryzaSativa.latinName(), "osa");
++		species2code.put(Organism.TriticumAestivum.latinName(), "etae");
++		species2code.put(Organism.XenopusTropicalis.latinName(), "xtr");
++		species2code.put(Organism.ZeaMays.latinName(), "ezma");
++		species2code.put(Organism.MycobacteriumTuberculosis.latinName(), "mtu");
++		species2code.put(Organism.AnophelesGambiae.latinName(), "aga");
++		species2code.put("Aspergillus niger", "ang");
+ 	}
+ 
++	public static String getKeggOrganism(String organism) throws ConverterException {
++		String code = species2code.get(organism);
++		if(code == null) throw new ConverterException("No KEGG code for organism " + organism);
++		return code;
++	}
++	
+ 	static String getGraphId(GraphIdContainer gc) {
+ 		//TK: Quick hack, GraphId is not automatically generated,
+ 		//so set one explicitly...
+Index: tools/KeggConverter/src/org/pathvisio/kegg/KeggService.java
+===================================================================
+--- tools/KeggConverter/src/org/pathvisio/kegg/KeggService.java	(revision 3625)
++++ tools/KeggConverter/src/org/pathvisio/kegg/KeggService.java	(working copy)
+@@ -26,7 +26,6 @@
+ import keggapi.KEGGPortType;
+ import keggapi.LinkDBRelation;
+ 
+-import org.bridgedb.bio.Organism;
+ import org.pathvisio.core.model.ConverterException;
+ 
+ public class KeggService {
+@@ -46,12 +45,22 @@
+ 		keggPortType = keggLocator.getKEGGPort();
+ 	}
+ 
++	String[] getGenes(String keggCode, String organism) throws RemoteException {
++		Set<String> genes = new HashSet<String>();
++		//KEGG code --> NCBI code
++		LinkDBRelation[] links = keggPortType.get_linkdb_by_entry(keggCode, "NCBI-GeneID", 1, 1000);
++		for(LinkDBRelation ldb : links) {
++			genes.add(ldb.getEntry_id2().substring(12));
++		}
++		return genes.toArray(new String[genes.size()]);
++	}
++	
+ 	/**
+ 	 * Fetches the organism specific NCBI gene identifiers for the enzyme code
+ 	 * @throws ConverterException
+ 	 * @throws RemoteException
+ 	 */
+-	String[] getGenesForEc(String ec, Organism organism) throws RemoteException, ConverterException {
++	String[] getGenesForEc(String ec, String organism) throws RemoteException, ConverterException {
+ 		Set<String> genes = new HashSet<String>();
+ 
+ 		//Fetch the kegg gene IDs
+@@ -68,7 +77,7 @@
+ 		return genes.toArray(new String[genes.size()]);
+ 	}
+ 
+-	String[] getGenesForKo(String ko, Organism organism) throws RemoteException, ConverterException {
++	String[] getGenesForKo(String ko, String organism) throws RemoteException, ConverterException {
+ 		Set<String> genes = new HashSet<String>();
+ 
+ 		Definition[] keggGenes = keggPortType.get_genes_by_ko(ko, Util.getKeggOrganism(organism));
+Index: tools/KeggConverter/build.xml
+===================================================================
+--- tools/KeggConverter/build.xml	(revision 3625)
++++ tools/KeggConverter/build.xml	(working copy)
+@@ -9,27 +9,18 @@
+ 	<property name="doc.dir" value="doc"/>
+ 	<property name="pathvisio.dir" value="../.."/>
+ 	
+-	<path id="jar.class.path">
++	<path id="class.path">
+ 	  	<fileset dir="lib">
+ 			<include name="*.jar"/>
+ 	  	</fileset>
+ 		<fileset dir="${pathvisio.dir}">
+-			<include name="lib/jdom.jar"/>
++			<include name="lib/com.springsource.org.jdom-1.1.0.jar"/>
+ 			<include name="lib/org.bridgedb.jar"/>
+ 			<include name="lib/org.bridgedb.bio.jar"/>
+-			<include name="pathvisio_core.jar"/>
++			<include name="modules/org.pathvisio.core.jar"/>
+ 		</fileset>
+ 	</path>
+ 
+-	<property name="manifest.class.path" value="lib/jsr173_1.0_api.jar lib/args4j-2.0.10.jar lib/google-collect-snapshot-20090211.jar lib/jaxb-api.jar lib/jaxb-impl.jar lib/activation.jar lib/resources.jar lib/jdom.jar lib/axis.jar lib/axis-ant.jar lib/commons-discovery-0.2.jar lib/commons-logging-1.0.4.jar lib/jaxrpc.jar lib/keggapi.jar lib/log4j-1.2.8.jar lib/pathvisio_core.jar lib/saaj.jar lib/wsdl4j-1.5.1.jar lib/org.bridgedb.jar lib/org.bridgedb.bio.jar"/>
+-
+-	<path id="class.path">
+-      	<pathelement location="${build.dir}"/>
+-		<fileset dir="lib">
+-		        <include name="**/*.jar"/>
+-		</fileset>
+-	</path>
+-
+ 	<target name="prepare">
+ 		<mkdir dir="${build.dir}"/>
+ 		<mkdir dir="${dist.dir}"/>
+@@ -67,15 +58,25 @@
+ 			   includes="**"
+ 			   destdir="${build.dir}"
+ 			   source="1.5">
+-		  <classpath refid="jar.class.path"/>
++		  <classpath refid="class.path"/>
+ 		</javac>
+ 	</target>
+ 
+ 	<target name="jar" depends="compile" description="Generates executable jar file">
++		<pathconvert refid="class.path" property="class.path.manifest" pathsep=" ">
++			<mapper>
++				<chainedmapper>
++					<!-- remove absolute path -->
++					<flattenmapper />
++					<!-- add lib/ prefix -->
++					<globmapper from="*" to="lib/*" />
++				</chainedmapper>
++			</mapper>
++		</pathconvert>
+ 		<jar jarfile="${jar.name}">
+ 			<manifest>
+ 				<attribute name="Main-Class" value="org.pathvisio.kegg.Converter"/>
+-				<attribute name="Class-Path" value="${manifest.class.path}"/>
++				<attribute name="Class-Path" value="${class.path.manifest}"/>
+ 			</manifest>
+ 			<fileset dir="${build.dir}" includes="**/*.class"/>			
+ 		</jar>
+@@ -84,10 +85,10 @@
+ 	<target name="dist" depends="jar" description="Copies jar and external libraries to dist path">
+ 		<copy file="${jar.name}" toDir="${dist.dir}"/>
+ 		<copy file="${pathvisio.dir}/lib/resources.jar" toDir="${dist.dir}/lib"/>
+-		<copy file="${pathvisio.dir}/lib/jdom.jar" toDir="${dist.dir}/lib"/>
++		<copy file="${pathvisio.dir}/lib/com.springsource.org.jdom-1.1.0.jar" toDir="${dist.dir}/lib"/>
+ 		<copy file="${pathvisio.dir}/lib/org.bridgedb.jar" toDir="${dist.dir}/lib"/>
+ 		<copy file="${pathvisio.dir}/lib/org.bridgedb.bio.jar" toDir="${dist.dir}/lib"/>
+-		<copy file="${pathvisio.dir}/pathvisio_core.jar" toDir="${dist.dir}/lib"/>
++		<copy file="${pathvisio.dir}/modules/org.pathvisio.core.jar" toDir="${dist.dir}/lib"/>
+ 		<copy file="${lib.dir}/axis.jar" toDir="${dist.dir}/lib"/>
+ 		<copy file="KGML_v0.7.1_.dtd" toDir="${dist.dir}"/>
+ 		<copy toDir="${dist.dir}/lib">
+Index: lib/bindex.jar
+===================================================================
+Cannot display: file marked as a binary type.
+svn:mime-type = application/octet-stream
+
+Property changes on: lib/bindex.jar
+___________________________________________________________________
+Added: svn:mime-type
+   + application/octet-stream
+
+Index: modules/org.pathvisio.core/src/org/pathvisio/core/model/MGroup.java
+===================================================================
+--- modules/org.pathvisio.core/src/org/pathvisio/core/model/MGroup.java	(revision 3625)
++++ modules/org.pathvisio.core/src/org/pathvisio/core/model/MGroup.java	(working copy)
+@@ -128,7 +128,7 @@
+ 			else bounds.add(e.getMBounds());
+ 		}
+ 		if(bounds != null) {
+-			double margin = groupStyle.getMMargin();
++			double margin = getGroupStyle().getMMargin();
+ 			return new Rectangle2D.Double(
+ 				bounds.getX() - margin,
+ 				bounds.getY() - margin,
+Index: modules/org.pathvisio.core/src/org/pathvisio/core/util/Relation.java
+===================================================================
+--- modules/org.pathvisio.core/src/org/pathvisio/core/util/Relation.java	(revision 3625)
++++ modules/org.pathvisio.core/src/org/pathvisio/core/util/Relation.java	(working copy)
+@@ -16,15 +16,17 @@
+ //
+ package org.pathvisio.core.util;
+ 
++import java.util.HashMap;
+ import java.util.HashSet;
++import java.util.Map;
+ import java.util.Set;
+ 
+ import org.pathvisio.core.debug.Logger;
+-import org.pathvisio.core.model.GraphLink.GraphRefContainer;
+ import org.pathvisio.core.model.LineType;
+ import org.pathvisio.core.model.ObjectType;
+ import org.pathvisio.core.model.Pathway;
+ import org.pathvisio.core.model.PathwayElement;
++import org.pathvisio.core.model.GraphLink.GraphRefContainer;
+ import org.pathvisio.core.model.PathwayElement.MAnchor;
+ import org.pathvisio.core.model.PathwayElement.MPoint;
+ 
+@@ -84,6 +86,8 @@
+ 	private Set<PathwayElement> rights = new HashSet<PathwayElement>();
+ 	private Set<PathwayElement> mediators = new HashSet<PathwayElement>();
+ 
++	private Map<PathwayElement, PathwayElement> mediatorLines = new HashMap<PathwayElement, PathwayElement>();
++	
+ 	/**
+ 	 * Parse a relation.
+ 	 * @param relationLine The line that defines the relation.
+@@ -121,7 +125,7 @@
+ 							addLeft(pathway.getElementById(line.getMStart().getGraphRef()));
+ 						} else {
+ 							//Add as 'mediator'
+-							addMediator(pathway.getElementById(line.getMStart().getGraphRef()));
++							addMediator(line, pathway.getElementById(line.getMStart().getGraphRef()));
+ 						}
+ 					}
+ 				} else {
+@@ -139,23 +143,36 @@
+ 		addElement(pwe, rights);
+ 	}
+ 
+-	void addMediator(PathwayElement pwe) {
+-		addElement(pwe, mediators);
++	void addMediator(PathwayElement line, PathwayElement pwe) {
++		Set<PathwayElement> added = addElement(pwe, mediators);
++		for(PathwayElement m : added) mediatorLines.put(m, line);
+ 	}
+ 
+-	void addElement(PathwayElement pwe, Set<PathwayElement> set) {
++	Set<PathwayElement> addElement(PathwayElement pwe, Set<PathwayElement> set) {
++		Set<PathwayElement> added = new HashSet<PathwayElement>();
++		
+ 		if(pwe != null) {
+ 			//If it's a group, add all subelements
+ 			if(pwe.getObjectType() == ObjectType.GROUP) {
+ 				for(PathwayElement ge : pwe.getParent().getGroupElements(pwe.getGroupId())) {
+-					addElement(ge, set);
++					added.addAll(addElement(ge, set));
+ 				}
+ 			}
+ 			set.add(pwe);
++			added.add(pwe);
+ 		}
++		return added;
+ 	}
+ 
+ 	public Set<PathwayElement> getLefts() { return lefts; }
+ 	public Set<PathwayElement> getRights() { return rights; }
+ 	public Set<PathwayElement> getMediators() { return mediators; }
++	
++	/**
++	 * Get the line that connects the given mediator to the relation. This can be
++	 * used to determine how the mediator influences the relation (e.g. inhibition or activation).
++	 */
++	public PathwayElement getMediatorLine(PathwayElement mediator) {
++		return mediatorLines.get(mediator);
++	}
+ }
+Index: modules/org.pathvisio.core/resources/plugin.png
+===================================================================
+Cannot display: file marked as a binary type.
+svn:mime-type = application/octet-stream
+
+Property changes on: modules/org.pathvisio.core/resources/plugin.png
+___________________________________________________________________
+Added: svn:mime-type
+   + application/octet-stream
+
+Index: modules/org.pathvisio.desktop/META-INF/MANIFEST.MF
+===================================================================
+--- modules/org.pathvisio.desktop/META-INF/MANIFEST.MF	(revision 3625)
++++ modules/org.pathvisio.desktop/META-INF/MANIFEST.MF	(working copy)
+@@ -4,12 +4,8 @@
+ Bundle-SymbolicName: org.pathvisio.desktop
+ Bundle-Version: 2.0.11
+ Bundle-Activator: org.pathvisio.desktop.Activator
+-Export-Package: com,
+- com.nexes,
+- com.nexes.test,
++Export-Package: com.nexes.test,
+  com.nexes.wizard,
+- org,
+- org.pathvisio,
+  org.pathvisio.desktop,
+  org.pathvisio.desktop.data,
+  org.pathvisio.desktop.gex,
+Index: modules/org.pathvisio.desktop/src/org/pathvisio/desktop/dialog/PluginManagerDialog.java
+===================================================================
+--- modules/org.pathvisio.desktop/src/org/pathvisio/desktop/dialog/PluginManagerDialog.java	(revision 3625)
++++ modules/org.pathvisio.desktop/src/org/pathvisio/desktop/dialog/PluginManagerDialog.java	(working copy)
+@@ -5,6 +5,7 @@
+ import java.awt.Component;
+ import java.awt.Dimension;
+ import java.util.ArrayList;
++import java.util.Enumeration;
+ import java.util.List;
+ 
+ import javax.swing.JDialog;
+@@ -16,6 +17,8 @@
+ import javax.swing.event.TreeSelectionEvent;
+ import javax.swing.event.TreeSelectionListener;
+ import javax.swing.tree.DefaultMutableTreeNode;
++import javax.swing.tree.TreeNode;
++import javax.swing.tree.TreePath;
+ import javax.swing.tree.TreeSelectionModel;
+ 
+ import org.apache.felix.bundlerepository.Resource;
+@@ -62,6 +65,8 @@
+ 		
+ 		createNodes(top);
+ 		
++		expandAll(tree, new TreePath(top), true);
++		
+ 		JScrollPane treeView = new JScrollPane(tree);
+ 		treeView.setBackground(Color.white);
+ 		 
+@@ -170,4 +175,23 @@
+ //	    	repositories.add(repoNode);
+ //	    }
+ 	}
++	
++	private void expandAll(JTree tree, TreePath parent, boolean expand) {
++	    // Traverse children
++	    TreeNode node = (TreeNode)parent.getLastPathComponent();
++	    if (node.getChildCount() >= 0) {
++	        for (Enumeration e=node.children(); e.hasMoreElements(); ) {
++	            TreeNode n = (TreeNode)e.nextElement();
++	            TreePath path = parent.pathByAddingChild(n);
++	            expandAll(tree, path, expand);
++	        }
++	    }
++
++	    // Expansion or collapse must be done bottom-up
++	    if (expand) {
++	        tree.expandPath(parent);
++	    } else {
++	        tree.collapsePath(parent);
++	    }
++	}
+ }

@@ -1,0 +1,2819 @@
+Index: pathvisio.sh
+===================================================================
+--- pathvisio.sh	(revision 3596)
++++ pathvisio.sh	(working copy)
+@@ -5,4 +5,4 @@
+ 
+ # run PathVisio, try to load plugins in visplugins.jar 
+ # this option will be ignored if visplugins.jar does not exist.
+-java -cp modules/org.pathvisio.launcher.jar:lib/org.eclipse.osgi.jar:modules/org.pathvisio.core.jar org.pathvisio.launcher.PathVisioMain "$@"
++java -jar modules/org.pathvisio.launcher.jar "$@"
+Index: build.xml
+===================================================================
+--- build.xml	(revision 3596)
++++ build.xml	(working copy)
+@@ -6,7 +6,7 @@
+ 	<property name="ant.build.javac.source" value="1.5"/>
+ 
+ 	<property name="src.dir" value="modules"/>
+-	<property name="pathvisio.version" value="2.0.11"/>
++	<property name="pathvisio.version" value="3.0.Beta"/>
+ 	<property name="debug.mode" value="true"/>
+ 
+     <property name="apidoc.dir" value="apidoc"/>
+@@ -96,7 +96,7 @@
+ 	</target>
+ 
+ 	<target name="wpclient.jar" depends="applet.jar">
+-		<subant target="jar" buildpath="modules/org.wikipathways.applet/build.xml"/>
++		<subant target="jar" buildpath="modules/org.wikipathways.client/build.xml"/>
+ 	</target>
+ 
+ 	<target name="visualization.jar" depends="desktop.jar">
+@@ -143,35 +143,79 @@
+ 		<copy file="${webstart.dir}/pathvisio.jnlp" toDir="${webstart.dir}/www"/>
+ 	</target>
+ 
+-	<path id="wikipathways.libs">
++	<path id="applet.libs">
++		<fileset dir="lib">
++			<include name="org.bridgedb.jar"/>
++			<include name="org.bridgedb.bio.jar"/>
++			<include name="org.bridgedb.rdb.jar"/>
++			<include name="derbyclient.jar"/>
++			<include name="org.pathvisio.jgoodies.forms.jar"/>
++			<include name="org.pathvisio.swingworker.jar"/>
++			<include name="org.pathvisio.xmlrpc.client.jar"/>
++			<include name="org.pathvisio.xmlrpc.common.jar"/>
++			<include name="org.pathvisio.ws.commons.util.jar"/>
++			<include name="com.springsource.org.jdom-1.1.0.jar"/>
++		</fileset>
+ 		<fileset dir="modules">
+ 			<include name="org.pathvisio.core.jar"/>
+ 			<include name="org.pathvisio.gui.jar"/>
+ 			<include name="org.wikipathways.applet.jar"/>
+ 		</fileset>
++	</path>
++
++	<path id="utility.libs">
+ 		<fileset dir="lib">
+ 			<include name="org.bridgedb.jar"/>
+ 			<include name="org.bridgedb.bio.jar"/>
+ 			<include name="org.bridgedb.rdb.jar"/>
++			<include name="org.apache.batik.*.jar"/>
++			<include name="org.pathvisio.pdftranscoder.jar"/>
++			<include name="org.apache.xalan*.jar"/>
++			<include name="org.apache.xerces*.jar"/>
++			<include name="org.apache.xml*.jar"/>
++			<include name="org.w3c*.jar"/>
++			<include name="javax.xml*.jar"/>
+ 			<include name="derbyclient.jar"/>
+ 			<include name="org.pathvisio.jgoodies.forms.jar"/>
+ 			<include name="org.pathvisio.swingworker.jar"/>
++			<include name="org.pathvisio.ws.commons.util.jar"/>
+ 			<include name="org.pathvisio.xmlrpc.client.jar"/>
+ 			<include name="org.pathvisio.xmlrpc.common.jar"/>
+ 			<include name="com.springsource.org.jdom-1.1.0.jar"/>
+ 		</fileset>
+ 	</path>
+-	
++
+ 	<target name="prepare-wpi" depends="applet.jar" description="Prepare all applets and utilities needed by WikiPathways">
++		
+ 		<!-- Copy converter jar with modified main class -->
+ 		<copy tofile="${build.wpi.bin}/pathvisio_color_exporter.jar"
+ 			file="modules/org.pathvisio.core.jar"/>
++		
++		<copy toDir="${build.wpi.bin}/lib"><path refid="utility.libs"/></copy>		
++		<manifestclasspath property="jar.class.path" jarfile="${build.wpi.bin}/pathvisio_color_exporter.jar">
++			<classpath>
++				<fileset dir="${build.wpi.bin}/lib"><include name="*.jar"/></fileset>
++				<!-- add reference to optional BioPAX converter to classpath -->
++				<pathelement location="${build.wpi.bin}/Biopax3GPML.jar"/>
++			</classpath>
++		</manifestclasspath>
++		
+ 		<jar file="${build.wpi.bin}/pathvisio_color_exporter.jar" update="true">
+ 			<manifest>
+ 				<attribute name="Main-Class" value="org.pathvisio.core.util.ColorExporter"/>
++				<attribute name="Class-Path" value="${jar.class.path}"/>
+ 			</manifest>
+ 		</jar>
+ 
++		<copy tofile="${build.wpi.bin}/pathvisio_core.jar"
++			file="modules/org.pathvisio.core.jar"/>
++		<jar file="${build.wpi.bin}/pathvisio_core.jar" update="true">
++			<manifest>
++				<attribute name="Main-Class" value="org.pathvisio.core.util.Converter"/>
++				<attribute name="Class-Path" value="${jar.class.path}"/>
++			</manifest>
++		</jar>
++
+ 		<!-- Copy necessary libraries -->
+ 		<copy toDir="${build.wpi.applet}">
+ 			<fileset dir=".">
+@@ -179,7 +223,7 @@
+ 			</fileset>
+ 		</copy>
+ 		<copy toDir="${build.wpi.applet}">
+-			<path refid="wikipathways.libs"/>
++			<path refid="applet.libs"/>
+ 		</copy>
+ 
+ 		<!-- Copy preloader class -->
+@@ -189,7 +233,7 @@
+ 		<!-- generate cache_archive, which will be used to determine which jars are needed for the applet -->
+ 		<pathconvert property="wikipathways.class.path"
+ 					 pathsep=" ">
+-		  <path refid="wikipathways.libs"/>
++		  <path refid="applet.libs"/>
+ 		  <flattenmapper/>
+ 		</pathconvert>
+ 		<echo file="${build.wpi.applet}/cache_archive" message="org.wikipathways.applet.jar ${wikipathways.class.path}" />
+@@ -280,28 +324,55 @@
+ 		<property name="binbase" value="pathvisio_bin-${pathvisio.version}-r${subversion_revision}"/>
+ 		<zip destfile="${release.dir}/${binbase}.zip">
+ 			<zipfileset dir="." prefix="pathvisio-${pathvisio.version}">
+-				<include name="lib/batik/*.jar"/>
+-				<include name="lib/BrowserLauncher.jar"/>
++				<include name="lib/javax.xml_1.3.4.v200902170245.jar"/>
++				<include name="lib/commons-codec-1.5.jar"/>
++				<include name="lib/commons-math-2.0.jar"/>
++				<include name="lib/com.springsource.org.apache.commons.logging-1.1.1.jar"/>
++				<include name="lib/com.springsource.org.jdom-1.1.0.jar"/>
+ 				<include name="lib/derby.jar"/>
+-				<include name="lib/forms-1.2.0.jar"/>
+-				<include name="lib/jdom.jar"/>
++				<include name="lib/org.apache.batik.bridge_1.7.0.v200903091627.jar"/>
++				<include name="lib/org.apache.batik.css_1.7.0.v200903091627.jar"/>
++				<include name="lib/org.apache.batik.dom_1.7.0.v200903091627.jar"/>
++				<include name="lib/org.apache.batik.dom.svg_1.7.0.v200903091627.jar"/>
++				<include name="lib/org.apache.batik.ext.awt_1.7.0.v200903091627.jar"/>
++				<include name="lib/org.apache.batik.extension_1.7.0.v200903091627.jar"/>
++				<include name="lib/org.apache.batik.parser_1.7.0.v200903091627.jar"/>
++				<include name="lib/org.apache.batik.svggen_1.7.0.v200903091627.jar"/>
++				<include name="lib/org.apache.batik.transcoder_1.7.0.v200903091627.jar"/>
++				<include name="lib/org.apache.batik.util_1.7.0.v200903091627.jar"/>
++				<include name="lib/org.apache.batik.util.gui_1.7.0.v200903091627.jar"/>
++				<include name="lib/org.apache.batik.xml_1.7.0.v200903091627.jar"/>
++				<include name="lib/org.apache.xalan_2.7.1.v200905122109.jar"/>
++				<include name="lib/org.apache.xerces_2.9.0.v200909240008.jar"/>
++				<include name="lib/org.apache.xml.resolver_1.2.0.v200902170519.jar"/>
++				<include name="lib/org.apache.xml.serializer_2.7.1.v200902170519.jar"/>
++				<include name="lib/org.bridgedb.bio.jar"/>
++				<include name="lib/org.bridgedb.gui.jar"/>
+ 				<include name="lib/org.bridgedb.jar"/>
++				<include name="lib/org.bridgedb.rdb.construct.jar"/>
+ 				<include name="lib/org.bridgedb.rdb.jar"/>
+ 				<include name="lib/org.bridgedb.webservice.bridgerest.jar"/>
+-				<include name="lib/org.bridgedb.bio.jar"/>
+-				<include name="lib/org.bridgedb.rdb.construct.jar"/>
+-				<include name="lib/commons-math-2.0.jar"/>
+-				<include name="lib/resources.jar"/>
+-				<include name="lib/swing-worker-1.1.jar"/>
+-				<include name="lib/licenses/*"/>
++				<include name="lib/org.eclipse.equinox.launcher.jar"/>
++				<include name="lib/org.eclipse.osgi.jar"/>
++				<include name="lib/org.pathvisio.browserlauncher.jar"/>
++				<include name="lib/org.pathvisio.jgoodies.forms.jar"/>
++				<include name="lib/org.pathvisio.pdftranscoder.jar"/>
++				<include name="lib/org.pathvisio.swingworker.jar"/>
++				<include name="lib/org.pathvisio.ws.commons.util.jar"/>
++				<include name="lib/org.pathvisio.xerces.jar"/>
++				<include name="lib/org.pathvisio.xmlrpc.client.jar"/>
++				<include name="lib/org.pathvisio.xmlrpc.common.jar"/>
++				<include name="lib/org.w3c.css.sac_1.3.1.v200903091627.jar"/>
++				<include name="lib/org.w3c.dom.events_3.0.0.draft20060413_v200905140418.jar"/>
++				<include name="lib/org.w3c.dom.smil_1.0.1.v200903091627.jar"/>
++				<include name="lib/org.w3c.dom.svg_1.1.0.v200806040011.jar"/>
+ 				<include name="GPML*.xsd"/>
+ 				<include name="LICENSE-2.0.txt"/>
+ 				<include name="NOTICE.txt"/>
+ 				<include name="readme.txt"/>
+ 				<include name="pathvisio.sh"/>
+ 				<include name="pathvisio.bat"/>
+-				<include name="pathvisio.jar"/>
+-				<include name="visplugins.jar"/>
++				<include name="modules/*.jar"/>
+ 			</zipfileset>
+ 		</zip>
+ 		<tar destfile="${release.dir}/${binbase}.tar.gz" compression="gzip">
+Index: tools/KeggConverter/src/org/pathvisio/kegg/KeggFormat.java
+===================================================================
+--- tools/KeggConverter/src/org/pathvisio/kegg/KeggFormat.java	(revision 3596)
++++ tools/KeggConverter/src/org/pathvisio/kegg/KeggFormat.java	(working copy)
+@@ -15,18 +15,6 @@
+ //limitations under the License.
+ package org.pathvisio.kegg;
+ 
+-import com.google.common.collect.HashMultimap;
+-import com.google.common.collect.SetMultimap;
+-
+-import dtd.kegg.Entry;
+-import dtd.kegg.Graphics;
+-import dtd.kegg.Pathway;
+-import dtd.kegg.Product;
+-import dtd.kegg.Reaction;
+-import dtd.kegg.Relation;
+-import dtd.kegg.Substrate;
+-import dtd.kegg.Subtype;
+-
+ import java.awt.Color;
+ import java.awt.geom.Point2D;
+ import java.rmi.RemoteException;
+@@ -48,25 +36,37 @@
+ import org.bridgedb.bio.BioDataSource;
+ import org.bridgedb.bio.Organism;
+ import org.pathvisio.core.debug.Logger;
+-import org.pathvisio.core.model.ConnectorShape.Segment;
+-import org.pathvisio.core.model.ConnectorShape.WayPoint;
+ import org.pathvisio.core.model.ConnectorType;
+ import org.pathvisio.core.model.ConverterException;
+ import org.pathvisio.core.model.DataNodeType;
+ import org.pathvisio.core.model.GpmlFormatAbstract;
+-import org.pathvisio.core.model.GraphLink.GraphIdContainer;
+ import org.pathvisio.core.model.LineStyle;
+ import org.pathvisio.core.model.LineType;
+ import org.pathvisio.core.model.MLine;
+ import org.pathvisio.core.model.ObjectType;
+ import org.pathvisio.core.model.PathwayElement;
++import org.pathvisio.core.model.ShapeType;
++import org.pathvisio.core.model.ConnectorShape.Segment;
++import org.pathvisio.core.model.ConnectorShape.WayPoint;
++import org.pathvisio.core.model.GraphLink.GraphIdContainer;
+ import org.pathvisio.core.model.PathwayElement.MAnchor;
+ import org.pathvisio.core.model.PathwayElement.MPoint;
+-import org.pathvisio.core.model.ShapeType;
+ import org.pathvisio.core.view.LinAlg;
++import org.pathvisio.core.view.MIMShapes;
+ import org.pathvisio.core.view.LinAlg.Point;
+-import org.pathvisio.core.view.MIMShapes;
+ 
++import com.google.common.collect.HashMultimap;
++import com.google.common.collect.SetMultimap;
++
++import dtd.kegg.Entry;
++import dtd.kegg.Graphics;
++import dtd.kegg.Pathway;
++import dtd.kegg.Product;
++import dtd.kegg.Reaction;
++import dtd.kegg.Relation;
++import dtd.kegg.Substrate;
++import dtd.kegg.Subtype;
++
+ /**
+  * File converter for the KGML, the kegg pathway format.
+  */
+@@ -84,9 +84,8 @@
+ 	private double spacing = 2;
+ 
+ 	private KeggService keggService;
+-	private Organism organism;
+ 	private String species;
+-	private String shortName;
++	private String speciesCode;
+ 	private Pathway pathway; //Main pathway
+ 	private Pathway map; //Used only to improve species specific pathway
+ 
+@@ -107,17 +106,14 @@
+ 
+ 	private Map<String, Entry> entriesById = new HashMap<String, Entry>();
+ 
+-	public KeggFormat(Pathway pathway, Organism organism) {
++	public KeggFormat(Pathway pathway, String organism) {
+ 		this.pathway = pathway;
+-		this.organism = organism;
+-		this.shortName = organism.shortName();
+-		this.species = organism.latinName();
++		this.species = organism;
+ 	}
+ 
+-	public KeggFormat(Pathway map, Pathway ko, Organism organism) {
++	public KeggFormat(Pathway map, Pathway ko, String organism) {
+ 		this(ko, organism);
+ 		this.map = map;
+-		this.shortName = organism.shortName();
+ 	}
+ 
+ 	public void setSpacing(double spacing) {
+@@ -155,7 +151,7 @@
+ 				title = title.substring(0, 50);
+ 			}
+ 			mappInfo.setMapInfoName(title);
+-			mappInfo.setOrganism(species);
++			mappInfo.setOrganism(speciesCode);
+ 		}
+ 		mappInfo.setMapInfoDataSource(pathway.getLink()); //KH add url to kgml map
+ 
+@@ -715,14 +711,14 @@
+ 
+ 			for(int i = 0; i < ids.length; i++) {
+ 				String id = ids[i];
+-				String[] genes = getGenes(id, organism, Type.fromString(entry.getType()));
++				String[] genes = getGenes(id, species, Type.fromString(entry.getType()));
+ 
+ 				
+ 				for(String gene : genes) {
+ 					String geneName = dg.getName();
+ 					if(isUseWebservice()) { //fetch the real name from the webservice
+ 						geneName = keggService.getKeggSymbol(
+-								Util.getKeggOrganism(organism) + ":" + gene
++								Util.getKeggOrganism(species) + ":" + gene
+ 						);
+ 					}
+ 					geneName = processLabel(geneName);
+@@ -933,10 +929,14 @@
+ 		return dn;
+ 	}
+ 
+-	private String[] getGenes(String keggId, Organism organism, Type type) throws RemoteException, ConverterException {
+-		if(isUseWebservice() && type != Type.GENE) {
++	private String[] getGenes(String keggId, String organism, Type type) throws RemoteException, ConverterException {
++		boolean isValidGene = type == Type.GENE && keggId.matches("[a-z]{3}:[0-9]+$");
++		
++		if(isUseWebservice() && !isValidGene) {
+ 			if(type == Type.ORTHOLOG) {
+ 				return keggService.getGenesForKo(keggId, organism);
++			} else if(type == Type.GENE) {
++				return keggService.getGenes(keggId, organism);
+ 			} else {
+ 				return keggService.getGenesForEc(keggId, organism);
+ 			}
+Index: tools/KeggConverter/src/org/pathvisio/kegg/Converter.java
+===================================================================
+--- tools/KeggConverter/src/org/pathvisio/kegg/Converter.java	(revision 3596)
++++ tools/KeggConverter/src/org/pathvisio/kegg/Converter.java	(working copy)
+@@ -101,7 +101,8 @@
+ 	public Converter() {
+ 	}
+ 
+-	private Organism getOrganism() {
++	private String getOrganism() {
++		//Try to parse Organism class to support short names for common species
+ 		Organism organism = Organism.fromLatinName(species);
+ 		if(organism == null) {
+ 			//try by short name
+@@ -111,11 +112,8 @@
+ 			//finally, try by code
+ 			organism = Organism.fromCode(species);
+ 		}
+-		if(organism == null) {
+-			//give up and print help
+-			throw new IllegalArgumentException("Couldn't find species: " + species);
+-		}
+-		return organism;
++		if(organism != null) species = organism.latinName();
++		return species;
+ 	}
+ 
+ 	private void recursiveConversion() throws FileNotFoundException, RemoteException, JAXBException, ConverterException, ServiceException,
+Index: tools/KeggConverter/src/org/pathvisio/kegg/Util.java
+===================================================================
+--- tools/KeggConverter/src/org/pathvisio/kegg/Util.java	(revision 3596)
++++ tools/KeggConverter/src/org/pathvisio/kegg/Util.java	(working copy)
+@@ -19,6 +19,8 @@
+ import java.io.ByteArrayInputStream;
+ import java.io.InputStream;
+ import java.util.Collection;
++import java.util.HashMap;
++import java.util.Map;
+ 
+ import javax.xml.bind.JAXBContext;
+ import javax.xml.bind.JAXBException;
+@@ -33,8 +35,8 @@
+ import org.bridgedb.bio.Organism;
+ import org.pathvisio.core.debug.Logger;
+ import org.pathvisio.core.model.ConverterException;
+-import org.pathvisio.core.model.GraphLink.GraphIdContainer;
+ import org.pathvisio.core.model.PathwayElement;
++import org.pathvisio.core.model.GraphLink.GraphIdContainer;
+ import org.pathvisio.core.view.LinAlg;
+ import org.pathvisio.core.view.LinAlg.Point;
+ import org.xml.sax.InputSource;
+@@ -43,49 +45,36 @@
+ import org.xml.sax.helpers.XMLFilterImpl;
+ 
+ public class Util {
+-	static String getKeggOrganism(Organism organism) throws ConverterException {
+-		switch(organism) {
+-		case HomoSapiens:
+-			return "hsa";
+-		case RattusNorvegicus:
+-			return "rno";
+-		case MusMusculus:
+-			return "mmu";
+-		case SaccharomycesCerevisiae:
+-			return "sce";
+-		case ArabidopsisThaliana:
+-			return "ath";
+-		case BosTaurus:
+-			return "bta";
+-		case CaenorhabditisElegans:
+-			return "cel";
+-		case CanisFamiliaris:
+-			return "cfa";
+-		case DanioRerio:
+-			return "dre";
+-		case DrosophilaMelanogaster:
+-			return "dme";
+-		case EscherichiaColi:
+-			return "eco";
+-		case GallusGallus:
+-			return "gga";
+-		case OryzaSativa:
+-			return "osa";
+-		case TriticumAestivum:
+-			return "etae";
+-		case XenopusTropicalis:
+-			return "xtr";
+-		case ZeaMays:
+-			return "ezma";
+-		case MycobacteriumTuberculosis:
+-			return "mtu";
+-		case AnophelesGambiae:
+-			return "aga";
+-		default:
+-			throw new ConverterException("No KEGG code for organism " + organism);
+-		}
++	private static Map<String, String> species2code = new HashMap<String, String>();
++	
++	static {
++		species2code.put(Organism.HomoSapiens.latinName(), "hsa");
++		species2code.put(Organism.RattusNorvegicus.latinName(), "rno");
++		species2code.put(Organism.MusMusculus.latinName(), "mmu");
++		species2code.put(Organism.SaccharomycesCerevisiae.latinName(), "sce");
++		species2code.put(Organism.ArabidopsisThaliana.latinName(), "ath");
++		species2code.put(Organism.BosTaurus.latinName(), "bta");
++		species2code.put(Organism.CaenorhabditisElegans.latinName(), "hsa");
++		species2code.put(Organism.CanisFamiliaris.latinName(), "cfa");
++		species2code.put(Organism.DanioRerio.latinName(), "dre");
++		species2code.put(Organism.DrosophilaMelanogaster.latinName(), "dme");
++		species2code.put(Organism.EscherichiaColi.latinName(), "eco");
++		species2code.put(Organism.GallusGallus.latinName(), "gga");
++		species2code.put(Organism.OryzaSativa.latinName(), "osa");
++		species2code.put(Organism.TriticumAestivum.latinName(), "etae");
++		species2code.put(Organism.XenopusTropicalis.latinName(), "xtr");
++		species2code.put(Organism.ZeaMays.latinName(), "ezma");
++		species2code.put(Organism.MycobacteriumTuberculosis.latinName(), "mtu");
++		species2code.put(Organism.AnophelesGambiae.latinName(), "aga");
++		species2code.put("Aspergillus niger", "ang");
+ 	}
+ 
++	public static String getKeggOrganism(String organism) throws ConverterException {
++		String code = species2code.get(organism);
++		if(code == null) throw new ConverterException("No KEGG code for organism " + organism);
++		return code;
++	}
++	
+ 	static String getGraphId(GraphIdContainer gc) {
+ 		//TK: Quick hack, GraphId is not automatically generated,
+ 		//so set one explicitly...
+Index: tools/KeggConverter/src/org/pathvisio/kegg/KeggService.java
+===================================================================
+--- tools/KeggConverter/src/org/pathvisio/kegg/KeggService.java	(revision 3596)
++++ tools/KeggConverter/src/org/pathvisio/kegg/KeggService.java	(working copy)
+@@ -26,7 +26,6 @@
+ import keggapi.KEGGPortType;
+ import keggapi.LinkDBRelation;
+ 
+-import org.bridgedb.bio.Organism;
+ import org.pathvisio.core.model.ConverterException;
+ 
+ public class KeggService {
+@@ -46,12 +45,22 @@
+ 		keggPortType = keggLocator.getKEGGPort();
+ 	}
+ 
++	String[] getGenes(String keggCode, String organism) throws RemoteException {
++		Set<String> genes = new HashSet<String>();
++		//KEGG code --> NCBI code
++		LinkDBRelation[] links = keggPortType.get_linkdb_by_entry(keggCode, "NCBI-GeneID", 1, 1000);
++		for(LinkDBRelation ldb : links) {
++			genes.add(ldb.getEntry_id2().substring(12));
++		}
++		return genes.toArray(new String[genes.size()]);
++	}
++	
+ 	/**
+ 	 * Fetches the organism specific NCBI gene identifiers for the enzyme code
+ 	 * @throws ConverterException
+ 	 * @throws RemoteException
+ 	 */
+-	String[] getGenesForEc(String ec, Organism organism) throws RemoteException, ConverterException {
++	String[] getGenesForEc(String ec, String organism) throws RemoteException, ConverterException {
+ 		Set<String> genes = new HashSet<String>();
+ 
+ 		//Fetch the kegg gene IDs
+@@ -68,7 +77,7 @@
+ 		return genes.toArray(new String[genes.size()]);
+ 	}
+ 
+-	String[] getGenesForKo(String ko, Organism organism) throws RemoteException, ConverterException {
++	String[] getGenesForKo(String ko, String organism) throws RemoteException, ConverterException {
+ 		Set<String> genes = new HashSet<String>();
+ 
+ 		Definition[] keggGenes = keggPortType.get_genes_by_ko(ko, Util.getKeggOrganism(organism));
+Index: tools/KeggConverter/build.xml
+===================================================================
+--- tools/KeggConverter/build.xml	(revision 3596)
++++ tools/KeggConverter/build.xml	(working copy)
+@@ -9,27 +9,18 @@
+ 	<property name="doc.dir" value="doc"/>
+ 	<property name="pathvisio.dir" value="../.."/>
+ 	
+-	<path id="jar.class.path">
++	<path id="class.path">
+ 	  	<fileset dir="lib">
+ 			<include name="*.jar"/>
+ 	  	</fileset>
+ 		<fileset dir="${pathvisio.dir}">
+-			<include name="lib/jdom.jar"/>
++			<include name="lib/com.springsource.org.jdom-1.1.0.jar"/>
+ 			<include name="lib/org.bridgedb.jar"/>
+ 			<include name="lib/org.bridgedb.bio.jar"/>
+-			<include name="pathvisio_core.jar"/>
++			<include name="modules/org.pathvisio.core.jar"/>
+ 		</fileset>
+ 	</path>
+ 
+-	<property name="manifest.class.path" value="lib/jsr173_1.0_api.jar lib/args4j-2.0.10.jar lib/google-collect-snapshot-20090211.jar lib/jaxb-api.jar lib/jaxb-impl.jar lib/activation.jar lib/resources.jar lib/jdom.jar lib/axis.jar lib/axis-ant.jar lib/commons-discovery-0.2.jar lib/commons-logging-1.0.4.jar lib/jaxrpc.jar lib/keggapi.jar lib/log4j-1.2.8.jar lib/pathvisio_core.jar lib/saaj.jar lib/wsdl4j-1.5.1.jar lib/org.bridgedb.jar lib/org.bridgedb.bio.jar"/>
+-
+-	<path id="class.path">
+-      	<pathelement location="${build.dir}"/>
+-		<fileset dir="lib">
+-		        <include name="**/*.jar"/>
+-		</fileset>
+-	</path>
+-
+ 	<target name="prepare">
+ 		<mkdir dir="${build.dir}"/>
+ 		<mkdir dir="${dist.dir}"/>
+@@ -67,15 +58,25 @@
+ 			   includes="**"
+ 			   destdir="${build.dir}"
+ 			   source="1.5">
+-		  <classpath refid="jar.class.path"/>
++		  <classpath refid="class.path"/>
+ 		</javac>
+ 	</target>
+ 
+ 	<target name="jar" depends="compile" description="Generates executable jar file">
++		<pathconvert refid="class.path" property="class.path.manifest" pathsep=" ">
++			<mapper>
++				<chainedmapper>
++					<!-- remove absolute path -->
++					<flattenmapper />
++					<!-- add lib/ prefix -->
++					<globmapper from="*" to="lib/*" />
++				</chainedmapper>
++			</mapper>
++		</pathconvert>
+ 		<jar jarfile="${jar.name}">
+ 			<manifest>
+ 				<attribute name="Main-Class" value="org.pathvisio.kegg.Converter"/>
+-				<attribute name="Class-Path" value="${manifest.class.path}"/>
++				<attribute name="Class-Path" value="${class.path.manifest}"/>
+ 			</manifest>
+ 			<fileset dir="${build.dir}" includes="**/*.class"/>			
+ 		</jar>
+@@ -84,10 +85,10 @@
+ 	<target name="dist" depends="jar" description="Copies jar and external libraries to dist path">
+ 		<copy file="${jar.name}" toDir="${dist.dir}"/>
+ 		<copy file="${pathvisio.dir}/lib/resources.jar" toDir="${dist.dir}/lib"/>
+-		<copy file="${pathvisio.dir}/lib/jdom.jar" toDir="${dist.dir}/lib"/>
++		<copy file="${pathvisio.dir}/lib/com.springsource.org.jdom-1.1.0.jar" toDir="${dist.dir}/lib"/>
+ 		<copy file="${pathvisio.dir}/lib/org.bridgedb.jar" toDir="${dist.dir}/lib"/>
+ 		<copy file="${pathvisio.dir}/lib/org.bridgedb.bio.jar" toDir="${dist.dir}/lib"/>
+-		<copy file="${pathvisio.dir}/pathvisio_core.jar" toDir="${dist.dir}/lib"/>
++		<copy file="${pathvisio.dir}/modules/org.pathvisio.core.jar" toDir="${dist.dir}/lib"/>
+ 		<copy file="${lib.dir}/axis.jar" toDir="${dist.dir}/lib"/>
+ 		<copy file="KGML_v0.7.1_.dtd" toDir="${dist.dir}"/>
+ 		<copy toDir="${dist.dir}/lib">
+Index: pathvisio.iss
+===================================================================
+--- pathvisio.iss	(revision 3596)
++++ pathvisio.iss	(working copy)
+@@ -2,7 +2,7 @@
+ ; SEE THE DOCUMENTATION FOR DETAILS ON CREATING INNO SETUP SCRIPT FILES!
+ 
+ ; requires ISPP (InnoSetup Pre-Processor) to be installed.
+-#define AppVerStr "2.0.11"
++#define AppVerStr "3.0.Beta"
+ 
+ [Setup]
+ AppName=PathVisio
+Index: lib/org.w3c.dom.svg_1.1.0.v200806040011.jar
+===================================================================
+Cannot display: file marked as a binary type.
+svn:mime-type = application/octet-stream
+
+Property changes on: lib/org.w3c.dom.svg_1.1.0.v200806040011.jar
+___________________________________________________________________
+Added: svn:mime-type
+   + application/octet-stream
+
+Index: lib/org.apache.batik.util_1.7.0.v200903091627.jar
+===================================================================
+Cannot display: file marked as a binary type.
+svn:mime-type = application/octet-stream
+
+Property changes on: lib/org.apache.batik.util_1.7.0.v200903091627.jar
+___________________________________________________________________
+Added: svn:mime-type
+   + application/octet-stream
+
+Index: lib/org.apache.batik.dom.svg_1.7.0.v200903091627.jar
+===================================================================
+Cannot display: file marked as a binary type.
+svn:mime-type = application/octet-stream
+
+Property changes on: lib/org.apache.batik.dom.svg_1.7.0.v200903091627.jar
+___________________________________________________________________
+Added: svn:mime-type
+   + application/octet-stream
+
+Index: lib/org.apache.xml.serializer_2.7.1.v200902170519.jar
+===================================================================
+Cannot display: file marked as a binary type.
+svn:mime-type = application/octet-stream
+
+Property changes on: lib/org.apache.xml.serializer_2.7.1.v200902170519.jar
+___________________________________________________________________
+Added: svn:mime-type
+   + application/octet-stream
+
+Index: lib/org.apache.batik.dom_1.7.0.v200903091627.jar
+===================================================================
+Cannot display: file marked as a binary type.
+svn:mime-type = application/octet-stream
+
+Property changes on: lib/org.apache.batik.dom_1.7.0.v200903091627.jar
+___________________________________________________________________
+Added: svn:mime-type
+   + application/octet-stream
+
+Index: lib/org.apache.batik.css_1.7.0.v200903091627.jar
+===================================================================
+Cannot display: file marked as a binary type.
+svn:mime-type = application/octet-stream
+
+Property changes on: lib/org.apache.batik.css_1.7.0.v200903091627.jar
+___________________________________________________________________
+Added: svn:mime-type
+   + application/octet-stream
+
+Index: lib/org.w3c.dom.events_3.0.0.draft20060413_v200905140418.jar
+===================================================================
+Cannot display: file marked as a binary type.
+svn:mime-type = application/octet-stream
+
+Property changes on: lib/org.w3c.dom.events_3.0.0.draft20060413_v200905140418.jar
+___________________________________________________________________
+Added: svn:mime-type
+   + application/octet-stream
+
+Index: lib/org.apache.batik.ext.awt_1.7.0.v200903091627.jar
+===================================================================
+Cannot display: file marked as a binary type.
+svn:mime-type = application/octet-stream
+
+Property changes on: lib/org.apache.batik.ext.awt_1.7.0.v200903091627.jar
+___________________________________________________________________
+Added: svn:mime-type
+   + application/octet-stream
+
+Index: lib/org.w3c.dom.smil_1.0.1.v200903091627.jar
+===================================================================
+Cannot display: file marked as a binary type.
+svn:mime-type = application/octet-stream
+
+Property changes on: lib/org.w3c.dom.smil_1.0.1.v200903091627.jar
+___________________________________________________________________
+Added: svn:mime-type
+   + application/octet-stream
+
+Index: lib/org.apache.felix.bundlerepository-1.6.6.jar
+===================================================================
+Cannot display: file marked as a binary type.
+svn:mime-type = application/octet-stream
+
+Property changes on: lib/org.apache.felix.bundlerepository-1.6.6.jar
+___________________________________________________________________
+Added: svn:mime-type
+   + application/octet-stream
+
+Index: lib/org.apache.batik.util.gui_1.7.0.v200903091627.jar
+===================================================================
+Cannot display: file marked as a binary type.
+svn:mime-type = application/octet-stream
+
+Property changes on: lib/org.apache.batik.util.gui_1.7.0.v200903091627.jar
+___________________________________________________________________
+Added: svn:mime-type
+   + application/octet-stream
+
+Index: lib/org.apache.batik.xml_1.7.0.v200903091627.jar
+===================================================================
+Cannot display: file marked as a binary type.
+svn:mime-type = application/octet-stream
+
+Property changes on: lib/org.apache.batik.xml_1.7.0.v200903091627.jar
+___________________________________________________________________
+Added: svn:mime-type
+   + application/octet-stream
+
+Index: lib/javax.xml_1.3.4.v200902170245.jar
+===================================================================
+Cannot display: file marked as a binary type.
+svn:mime-type = application/octet-stream
+
+Property changes on: lib/javax.xml_1.3.4.v200902170245.jar
+___________________________________________________________________
+Added: svn:mime-type
+   + application/octet-stream
+
+Index: lib/org.apache.batik.extension_1.7.0.v200903091627.jar
+===================================================================
+Cannot display: file marked as a binary type.
+svn:mime-type = application/octet-stream
+
+Property changes on: lib/org.apache.batik.extension_1.7.0.v200903091627.jar
+___________________________________________________________________
+Added: svn:mime-type
+   + application/octet-stream
+
+Index: lib/bindex.jar
+===================================================================
+Cannot display: file marked as a binary type.
+svn:mime-type = application/octet-stream
+
+Property changes on: lib/bindex.jar
+___________________________________________________________________
+Added: svn:mime-type
+   + application/octet-stream
+
+Index: lib/org.w3c.css.sac_1.3.1.v200903091627.jar
+===================================================================
+Cannot display: file marked as a binary type.
+svn:mime-type = application/octet-stream
+
+Property changes on: lib/org.w3c.css.sac_1.3.1.v200903091627.jar
+___________________________________________________________________
+Added: svn:mime-type
+   + application/octet-stream
+
+Index: lib/org.apache.batik.svggen_1.7.0.v200903091627.jar
+===================================================================
+Cannot display: file marked as a binary type.
+svn:mime-type = application/octet-stream
+
+Property changes on: lib/org.apache.batik.svggen_1.7.0.v200903091627.jar
+___________________________________________________________________
+Added: svn:mime-type
+   + application/octet-stream
+
+Index: lib/org.apache.batik.parser_1.7.0.v200903091627.jar
+===================================================================
+Cannot display: file marked as a binary type.
+svn:mime-type = application/octet-stream
+
+Property changes on: lib/org.apache.batik.parser_1.7.0.v200903091627.jar
+___________________________________________________________________
+Added: svn:mime-type
+   + application/octet-stream
+
+Index: lib/org.apache.batik.bridge_1.7.0.v200903091627.jar
+===================================================================
+Cannot display: file marked as a binary type.
+svn:mime-type = application/octet-stream
+
+Property changes on: lib/org.apache.batik.bridge_1.7.0.v200903091627.jar
+___________________________________________________________________
+Added: svn:mime-type
+   + application/octet-stream
+
+Index: lib/org.apache.xerces_2.9.0.v200909240008.jar
+===================================================================
+Cannot display: file marked as a binary type.
+svn:mime-type = application/octet-stream
+
+Property changes on: lib/org.apache.xerces_2.9.0.v200909240008.jar
+___________________________________________________________________
+Added: svn:mime-type
+   + application/octet-stream
+
+Index: lib/org.apache.xml.resolver_1.2.0.v200902170519.jar
+===================================================================
+Cannot display: file marked as a binary type.
+svn:mime-type = application/octet-stream
+
+Property changes on: lib/org.apache.xml.resolver_1.2.0.v200902170519.jar
+___________________________________________________________________
+Added: svn:mime-type
+   + application/octet-stream
+
+Index: lib/org.apache.xalan_2.7.1.v200905122109.jar
+===================================================================
+Cannot display: file marked as a binary type.
+svn:mime-type = application/octet-stream
+
+Property changes on: lib/org.apache.xalan_2.7.1.v200905122109.jar
+___________________________________________________________________
+Added: svn:mime-type
+   + application/octet-stream
+
+Index: lib/org.apache.batik.transcoder_1.7.0.v200903091627.jar
+===================================================================
+Cannot display: file marked as a binary type.
+svn:mime-type = application/octet-stream
+
+Property changes on: lib/org.apache.batik.transcoder_1.7.0.v200903091627.jar
+___________________________________________________________________
+Added: svn:mime-type
+   + application/octet-stream
+
+Index: lib/org.pathvisio.batik.anim.jar
+===================================================================
+Cannot display: file marked as a binary type.
+svn:mime-type = application/octet-stream
+Index: lib/org.pathvisio.batik.css.jar
+===================================================================
+Cannot display: file marked as a binary type.
+svn:mime-type = application/octet-stream
+Index: lib/org.pathvisio.batik.svggen.jar
+===================================================================
+Cannot display: file marked as a binary type.
+svn:mime-type = application/octet-stream
+Index: lib/org.pathvisio.batik.parser.jar
+===================================================================
+Cannot display: file marked as a binary type.
+svn:mime-type = application/octet-stream
+Index: lib/org.pathvisio.batik.bridge.jar
+===================================================================
+Cannot display: file marked as a binary type.
+svn:mime-type = application/octet-stream
+Index: lib/org.pathvisio.batik.xml.jar
+===================================================================
+Cannot display: file marked as a binary type.
+svn:mime-type = application/octet-stream
+Index: lib/org.pathvisio.batik.transcoder.jar
+===================================================================
+Cannot display: file marked as a binary type.
+svn:mime-type = application/octet-stream
+Index: lib/org.pathvisio.batik.script.jar
+===================================================================
+Cannot display: file marked as a binary type.
+svn:mime-type = application/octet-stream
+Index: lib/org.pathvisio.batik.extension.jar
+===================================================================
+Cannot display: file marked as a binary type.
+svn:mime-type = application/octet-stream
+Index: lib/org.pathvisio.batik.util.jar
+===================================================================
+Cannot display: file marked as a binary type.
+svn:mime-type = application/octet-stream
+Index: lib/org.pathvisio.batik.codec.jar
+===================================================================
+Cannot display: file marked as a binary type.
+svn:mime-type = application/octet-stream
+Index: lib/org.pathvisio.batik.gvt.jar
+===================================================================
+Cannot display: file marked as a binary type.
+svn:mime-type = application/octet-stream
+Index: lib/org.pathvisio.batik.ext.jar
+===================================================================
+Cannot display: file marked as a binary type.
+svn:mime-type = application/octet-stream
+Index: lib/org.pathvisio.xml.apis.ext.jar
+===================================================================
+Cannot display: file marked as a binary type.
+svn:mime-type = application/octet-stream
+Index: lib/org.pathvisio.xml.apis.jar
+===================================================================
+Cannot display: file marked as a binary type.
+svn:mime-type = application/octet-stream
+Index: lib/org.pathvisio.batik.awt.util.jar
+===================================================================
+Cannot display: file marked as a binary type.
+svn:mime-type = application/octet-stream
+Index: lib/org.pathvisio.batik.svg.dom.jar
+===================================================================
+Cannot display: file marked as a binary type.
+svn:mime-type = application/octet-stream
+Index: lib/org.pathvisio.batik.dom.jar
+===================================================================
+Cannot display: file marked as a binary type.
+svn:mime-type = application/octet-stream
+Index: modules/org.pathvisio.gui/META-INF/MANIFEST.MF
+===================================================================
+--- modules/org.pathvisio.gui/META-INF/MANIFEST.MF	(revision 3596)
++++ modules/org.pathvisio.gui/META-INF/MANIFEST.MF	(working copy)
+@@ -3,23 +3,7 @@
+ Bundle-Name: org.pathvisio.gui
+ Bundle-SymbolicName: org.pathvisio.gui
+ Bundle-Version: 2.0.11
++Export-Package: com.jroller.completer,com.mammothsoftware.frwk.ddb,org.pathvisio.gui,org.pathvisio.gui.completer,org.pathvisio.gui.dialogs,org.pathvisio.gui.dnd,org.pathvisio.gui.handler,org.pathvisio.gui.panels,org.pathvisio.gui.util,org.pathvisio.gui.view
++Require-Bundle: org.pathvisio.core;bundle-version="2.0.11",com.springsource.org.jdom;bundle-version="1.1.0",org.pathvisio.swingworker;bundle-version="1.1.0",org.pathvisio.jgoodies.forms;bundle-version="1.2.0",org.bridgedb;bundle-version="1.1.0",org.bridgedb.bio;bundle-version="1.1.0",org.bridgedb.gui;bundle-version="1.1.0",org.bridgedb.rdb;bundle-version="1.1.0"
+ Bundle-RequiredExecutionEnvironment: JavaSE-1.6
+-Require-Bundle: org.pathvisio.core;bundle-version="2.0.11",
+- com.springsource.org.jdom;bundle-version="1.1.0",
+- org.pathvisio.swingworker;bundle-version="1.1.0",
+- org.pathvisio.jgoodies.forms;bundle-version="1.2.0",
+- org.bridgedb;bundle-version="1.1.0",
+- org.bridgedb.bio;bundle-version="1.1.0",
+- org.bridgedb.gui;bundle-version="1.1.0",
+- org.bridgedb.rdb;bundle-version="1.1.0"
+-Export-Package: com.jroller.completer,
+- com.mammothsoftware.frwk.ddb,
+- org.pathvisio.gui,
+- org.pathvisio.gui.completer,
+- org.pathvisio.gui.dialogs,
+- org.pathvisio.gui.dnd,
+- org.pathvisio.gui.handler,
+- org.pathvisio.gui.panels,
+- org.pathvisio.gui.util,
+- org.pathvisio.gui.view
+ Import-Package: org.osgi.framework;version="1.5.0"
+Index: modules/org.pathvisio.core/META-INF/MANIFEST.MF
+===================================================================
+--- modules/org.pathvisio.core/META-INF/MANIFEST.MF	(revision 3596)
++++ modules/org.pathvisio.core/META-INF/MANIFEST.MF	(working copy)
+@@ -3,40 +3,31 @@
+ Bundle-Name: org.pathvisio.core
+ Bundle-SymbolicName: org.pathvisio.core
+ Bundle-Version: 2.0.11
+-Bundle-RequiredExecutionEnvironment: JavaSE-1.6
+-Export-Package: org.pathvisio.core,
+- org.pathvisio.core.biopax,
+- org.pathvisio.core.biopax.reflect,
+- org.pathvisio.core.data,
+- org.pathvisio.core.debug,
+- org.pathvisio.core.gpmldiff,
+- org.pathvisio.core.gui,
+- org.pathvisio.core.model,
+- org.pathvisio.core.preferences,
+- org.pathvisio.core.util,
+- org.pathvisio.core.view
+-Import-Package: org.osgi.framework;version="1.5.0"
++Export-Package: org.pathvisio.core,org.pathvisio.core.biopax,org.pathvisio.core.biopax.reflect,org.pathvisio.core.data,org.pathvisio.core.debug,org.pathvisio.core.gpmldiff,org.pathvisio.core.gui,org.pathvisio.core.model,org.pathvisio.core.preferences,org.pathvisio.core.util,org.pathvisio.core.view
+ Require-Bundle: derby;bundle-version="10.4.2000000",
+  com.springsource.org.jdom;bundle-version="1.1.0",
+- org.pathvisio.batik.anim;bundle-version="1.7.0",
+- org.pathvisio.batik.awt.util;bundle-version="1.7.0",
+- org.pathvisio.batik.bridge;bundle-version="1.7.0",
+- org.pathvisio.batik.codec;bundle-version="1.7.0",
+- org.pathvisio.batik.css;bundle-version="1.7.0",
+- org.pathvisio.batik.dom;bundle-version="1.7.0",
+- org.pathvisio.batik.ext;bundle-version="1.7.0",
+- org.pathvisio.batik.extension;bundle-version="1.7.0",
+- org.pathvisio.batik.gvt;bundle-version="1.7.0",
+- org.pathvisio.batik.parser;bundle-version="1.7.0",
+- org.pathvisio.batik.script;bundle-version="1.7.0",
+- org.pathvisio.batik.svg.dom;bundle-version="1.7.0",
+- org.pathvisio.batik.svggen;bundle-version="1.7.0",
+- org.pathvisio.batik.transcoder;bundle-version="1.7.0",
+- org.pathvisio.batik.util;bundle-version="1.7.0",
+- org.pathvisio.batik.xml;bundle-version="1.7.0",
+  org.pathvisio.pdftranscoder;bundle-version="1.7.0",
+- org.pathvisio.xml.apis;bundle-version="1.7.0",
+- org.pathvisio.xml.apis.ext;bundle-version="1.7.0",
+  org.bridgedb;bundle-version="1.1.0",
+  org.bridgedb.bio;bundle-version="1.1.0",
+- org.bridgedb.rdb;bundle-version="1.1.0"
++ org.bridgedb.rdb;bundle-version="1.1.0",
++ org.apache.batik.bridge;bundle-version="1.7.0",
++ org.apache.batik.css;bundle-version="1.7.0",
++ org.apache.batik.dom;bundle-version="1.7.0",
++ org.apache.batik.dom.svg;bundle-version="1.7.0",
++ org.apache.batik.ext.awt;bundle-version="1.7.0",
++ org.apache.batik.extension;bundle-version="1.7.0",
++ org.apache.batik.parser;bundle-version="1.7.0",
++ org.apache.batik.svggen;bundle-version="1.7.0",
++ org.apache.batik.transcoder;bundle-version="1.7.0",
++ org.apache.batik.util;bundle-version="1.7.0",
++ org.apache.batik.util.gui;bundle-version="1.7.0",
++ org.apache.batik.xml;bundle-version="1.7.0",
++ javax.xml;bundle-version="1.3.4",
++ org.apache.xml.resolver;bundle-version="1.2.0",
++ org.apache.xml.serializer;bundle-version="2.7.1",
++ org.w3c.css.sac;bundle-version="1.3.1",
++ org.w3c.dom.events;bundle-version="3.0.0",
++ org.w3c.dom.smil;bundle-version="1.0.1",
++ org.w3c.dom.svg;bundle-version="1.1.0"
++Bundle-RequiredExecutionEnvironment: JavaSE-1.6
++Import-Package: org.osgi.framework;version="1.5.0"
+Index: modules/org.pathvisio.core/src/org/pathvisio/core/model/MGroup.java
+===================================================================
+--- modules/org.pathvisio.core/src/org/pathvisio/core/model/MGroup.java	(revision 3596)
++++ modules/org.pathvisio.core/src/org/pathvisio/core/model/MGroup.java	(working copy)
+@@ -128,7 +128,7 @@
+ 			else bounds.add(e.getMBounds());
+ 		}
+ 		if(bounds != null) {
+-			double margin = groupStyle.getMMargin();
++			double margin = getGroupStyle().getMMargin();
+ 			return new Rectangle2D.Double(
+ 				bounds.getX() - margin,
+ 				bounds.getY() - margin,
+Index: modules/org.pathvisio.core/src/org/pathvisio/core/preferences/GlobalPreference.java
+===================================================================
+--- modules/org.pathvisio.core/src/org/pathvisio/core/preferences/GlobalPreference.java	(revision 3596)
++++ modules/org.pathvisio.core/src/org/pathvisio/core/preferences/GlobalPreference.java	(working copy)
+@@ -138,6 +138,7 @@
+ 
+ 	private static File dirApplication = null;
+ 	private static File dirData = null;
++	private static File dirPlugin = null;
+ 
+ 	/**
+ 	 * Get the working directory of this application
+@@ -149,6 +150,17 @@
+ 		}
+ 		return dirApplication;
+ 	}
++	
++	public static File getPluginDir() {
++		if(dirApplication == null) {
++			getApplicationDir();
++		}
++		if(dirPlugin == null) {
++			dirPlugin = new File(getApplicationDir(),"plugins");
++			if(!dirPlugin.exists()) dirPlugin.mkdir();
++		}
++		return dirPlugin;
++	}
+ 
+ 	public static File getDataDir() {
+ 		if(dirData == null) {
+Index: modules/org.pathvisio.core/src/org/pathvisio/core/util/Relation.java
+===================================================================
+--- modules/org.pathvisio.core/src/org/pathvisio/core/util/Relation.java	(revision 3596)
++++ modules/org.pathvisio.core/src/org/pathvisio/core/util/Relation.java	(working copy)
+@@ -16,15 +16,17 @@
+ //
+ package org.pathvisio.core.util;
+ 
++import java.util.HashMap;
+ import java.util.HashSet;
++import java.util.Map;
+ import java.util.Set;
+ 
+ import org.pathvisio.core.debug.Logger;
+-import org.pathvisio.core.model.GraphLink.GraphRefContainer;
+ import org.pathvisio.core.model.LineType;
+ import org.pathvisio.core.model.ObjectType;
+ import org.pathvisio.core.model.Pathway;
+ import org.pathvisio.core.model.PathwayElement;
++import org.pathvisio.core.model.GraphLink.GraphRefContainer;
+ import org.pathvisio.core.model.PathwayElement.MAnchor;
+ import org.pathvisio.core.model.PathwayElement.MPoint;
+ 
+@@ -84,6 +86,8 @@
+ 	private Set<PathwayElement> rights = new HashSet<PathwayElement>();
+ 	private Set<PathwayElement> mediators = new HashSet<PathwayElement>();
+ 
++	private Map<PathwayElement, PathwayElement> mediatorLines = new HashMap<PathwayElement, PathwayElement>();
++	
+ 	/**
+ 	 * Parse a relation.
+ 	 * @param relationLine The line that defines the relation.
+@@ -121,7 +125,7 @@
+ 							addLeft(pathway.getElementById(line.getMStart().getGraphRef()));
+ 						} else {
+ 							//Add as 'mediator'
+-							addMediator(pathway.getElementById(line.getMStart().getGraphRef()));
++							addMediator(line, pathway.getElementById(line.getMStart().getGraphRef()));
+ 						}
+ 					}
+ 				} else {
+@@ -139,23 +143,36 @@
+ 		addElement(pwe, rights);
+ 	}
+ 
+-	void addMediator(PathwayElement pwe) {
+-		addElement(pwe, mediators);
++	void addMediator(PathwayElement line, PathwayElement pwe) {
++		Set<PathwayElement> added = addElement(pwe, mediators);
++		for(PathwayElement m : added) mediatorLines.put(m, line);
+ 	}
+ 
+-	void addElement(PathwayElement pwe, Set<PathwayElement> set) {
++	Set<PathwayElement> addElement(PathwayElement pwe, Set<PathwayElement> set) {
++		Set<PathwayElement> added = new HashSet<PathwayElement>();
++		
+ 		if(pwe != null) {
+ 			//If it's a group, add all subelements
+ 			if(pwe.getObjectType() == ObjectType.GROUP) {
+ 				for(PathwayElement ge : pwe.getParent().getGroupElements(pwe.getGroupId())) {
+-					addElement(ge, set);
++					added.addAll(addElement(ge, set));
+ 				}
+ 			}
+ 			set.add(pwe);
++			added.add(pwe);
+ 		}
++		return added;
+ 	}
+ 
+ 	public Set<PathwayElement> getLefts() { return lefts; }
+ 	public Set<PathwayElement> getRights() { return rights; }
+ 	public Set<PathwayElement> getMediators() { return mediators; }
++	
++	/**
++	 * Get the line that connects the given mediator to the relation. This can be
++	 * used to determine how the mediator influences the relation (e.g. inhibition or activation).
++	 */
++	public PathwayElement getMediatorLine(PathwayElement mediator) {
++		return mediatorLines.get(mediator);
++	}
+ }
+Index: modules/org.pathvisio.core/resources/plugin.png
+===================================================================
+Cannot display: file marked as a binary type.
+svn:mime-type = application/octet-stream
+
+Property changes on: modules/org.pathvisio.core/resources/plugin.png
+___________________________________________________________________
+Added: svn:mime-type
+   + application/octet-stream
+
+Index: modules/org.pathvisio.core/package.bnd
+===================================================================
+--- modules/org.pathvisio.core/package.bnd	(revision 3596)
++++ modules/org.pathvisio.core/package.bnd	(working copy)
+@@ -1,5 +1,6 @@
+ Export-Package: *
+ Bundle-Version: 2.0.11
+ Bundle-Name: org.pathvisio.core
++Main-Class: org.pathvisio.core.util.Converter
+ Bundle-SymbolicName: org.pathvisio.core
+-Require-Bundle: org.pathvisio.batik.anim;bundle-version="1.7.0",org.pathvisio.batik.awt.util;bundle-version="1.7.0",org.pathvisio.batik.bridge;bundle-version="1.7.0",org.pathvisio.batik.codec;bundle-version="1.7.0",org.pathvisio.batik.css;bundle-version="1.7.0",org.pathvisio.batik.dom;bundle-version="1.7.0",org.pathvisio.batik.ext;bundle-version="1.7.0",org.pathvisio.batik.extension;bundle-version="1.7.0",org.pathvisio.batik.gvt;bundle-version="1.7.0",org.pathvisio.batik.parser;bundle-version="1.7.0",org.pathvisio.batik.script;bundle-version="1.7.0",org.pathvisio.batik.svg.dom;bundle-version="1.7.0",org.pathvisio.batik.svggen;bundle-version="1.7.0",org.pathvisio.batik.transcoder;bundle-version="1.7.0",org.pathvisio.batik.util;bundle-version="1.7.0",org.pathvisio.batik.xml;bundle-version="1.7.0",org.pathvisio.pdftranscoder;bundle-version="1.7.0",org.pathvisio.xml.apis;bundle-version="1.7.0",org.pathvisio.xml.apis.ext;bundle-version="1.7.0",com.springsource.org.jdom;bundle-version="1.1.0",org.bridgedb;bundle-version="1.1.0",org.bridgedb.gui;bundle-version="1.1.0",org.bridgedb.rdb;bundle-version="1.1.0",derby;bundle-version="10.4.2000000"
+\ No newline at end of file
++Require-Bundle: org.pathvisio.pdftranscoder;bundle-version="1.7.0",com.springsource.org.jdom;bundle-version="1.1.0",org.bridgedb;bundle-version="1.1.0",org.bridgedb.gui;bundle-version="1.1.0",org.bridgedb.rdb;bundle-version="1.1.0",derby;bundle-version="10.4.2000000",javax.xml;bundle-version="1.3.4",org.apache.batik.bridge;bundle-version="1.7.0",org.apache.batik.css;bundle-version="1.7.0",org.apache.batik.dom.svg;bundle-version="1.7.0",org.apache.batik.dom;bundle-version="1.7.0",org.apache.batik.ext.awt;bundle-version="1.7.0",org.apache.batik.extension;bundle-version="1.7.0",org.apache.batik.parser;bundle-version="1.7.0",org.apache.batik.svggen;bundle-version="1.7.0",org.apache.batik.transcoder;bundle-version="1.7.0",org.apache.batik.util.gui;bundle-version="1.7.0",org.apache.batik.util;bundle-version="1.7.0",org.apache.batik.xml;bundle-version="1.7.0",org.apache.xalan;bundle-version="2.7.1",org.apache.xerces;bundle-version="2.9.0",org.apache.xml.resolver;bundle-version="1.2.0",org.apache.xml.serializer;bundle-version="2.7.1",org.w3c.css.sac;bundle-version="1.3.1",org.w3c.dom.events;bundle-version="3.0.0",org.w3c.dom.smil;bundle-version="1.0.1",org.w3c.dom.svg;bundle-version="1.1.0"
+\ No newline at end of file
+Index: modules/org.pathvisio.core/build.xml
+===================================================================
+--- modules/org.pathvisio.core/build.xml	(revision 3596)
++++ modules/org.pathvisio.core/build.xml	(working copy)
+@@ -28,10 +28,13 @@
+ 
+ 	<path id="project.class.path">
+ 	  <fileset dir="../../lib">
+-		<include name="org.pathvisio.batik.*.jar"/>
++		<include name="org.apache.batik.*.jar"/>
++		<include name="org.apache.xml*.jar"/>
++		<include name="org.apache.xalan*.jar"/>
++		<include name="org.apache.xerces*.jar"/>
++		<include name="org.w3c.*.jar"/>
++		<include name="javax.xml*.jar"/>
+ 		<include name="org.pathvisio.pdftranscoder.jar"/>
+-		<include name="org.pathvisio.xml.apis.jar"/>
+-		<include name="org.pathvisio.xml.apis.ext.jar"/>
+ 		<include name="com.springsource.org.jdom-1.1.0.jar"/>
+ 		<include name="org.bridgedb.jar"/>
+ 		<include name="org.bridgedb.bio.jar"/>
+Index: modules/org.pathvisio.desktop/resources/com/nexes/wizard/cancelIcon.gif
+===================================================================
+--- modules/org.pathvisio.desktop/resources/com/nexes/wizard/cancelIcon.gif	(revision 0)
++++ modules/org.pathvisio.desktop/resources/com/nexes/wizard/cancelIcon.gif	(revision 3633)
+@@ -0,0 +1,21 @@
++GIF89a  ˜  ~ƒq ´‡~î∑®∑œ≠ª“âì£0m.j.g2o	1l	/h
++2k
++.c3n2j+5o+0f8r5l5m6n6l;t9o;p<q<qC}=q?s;m F@t0WAtBu!Ez Cv@q!Dv%JÅ"Dw#Fx#Ex6])MÇ'Iz*K|+L},M}/PÇ.O0QÄ1RÅ0P~5Vá3SÇ4TÇ/Jq;\çBaéLlõIgîQpûRqûMjïTqõZv†dÇ≠`|•cÄ™^y†fÇ™gÅßlÜ´rã±pà≠h†yëµwè≤zíµÄñ∑áùΩâüøì∞å°¿ç¢¡ó™«ï®ƒö≠»ô´∆úÆ…¢≥Ã¶∂Õ©π–ÆΩ”∂ƒÿ¥¬÷≥¡’π∆ŸøÀ‹0j/e	3m
++3m6m=v5j9n@{>v;o?uByBvDx Ey#H{*Så$Gx%Hy'L})K{-O~3Yç1TÇ'Bh%>`2SÅ5VÑ7Yá6WÑ8XÖ>aëDiúRu£PrûPqùQmî`Å≠dÅ©fÇ©rèµsé≥ôºÅô∫Üúªé§¬¢≥À•∂Œ∞¿’¨∫Õª»⁄Ω €¬Œﬁ∆—‡À’„+.U)N	9F{"Oà6V3VK}.M5W1N":V-Jk8TsF|2S7Y&Yå&Wâ1K7S1F/Je.GaYÑÆKawÇ°ø]o,eîI|¶m{á	Sä&cì$iö(mú/A≠…›et~cô's£Wñæq§tßRõƒr™}Æm±”Ö∏à∫Ö∂:IõÃ„É∏ç¬î«C£Õ9Fq¡·+ñ…#üœM∑ﬁWΩ‚™ﬂ®›û”¢◊†”¨›1∂·-KUN`f<W]"GL"DH&JN3UX)KM+LM/MMFbb.SQ8]W8[S5YPStg:bREqUJvXcÜmRá^kñls¥lq≤kt∂lv∏n|¡py∫oˇˇˇ!˘  ˇ ,       ˇ ˇ	¯O‹5ad.yŸÇ+Y6n#
++≠ß2aT 2	äí]‘$‹÷…‚¶Lcpπ"•	!<êuìxçßMõ4â!–Ö£«!=fÑË5s†6Me h"#å•-V,!ÚGâ	à+wIåL
++|±§Öí$&FÑÏhaÇ“20‡/|ˆÜa1Èà¢ZËÅZÄ++n·∞hY|ÄΩ\ëADÎ }†
++[¿ ≠⁄*VÆT!ÁÄº[å([ÓwÓ”ÑÕàÉÚ$Jî'N⁄ïn∑J’Í÷j⁄`–‡!î-Géí$itdQ9~˝“πÎ◊œú'	m‡lÇD¢ AÄ ˇÒ·„–†q “∞~·BÜF†Pa®>}˙‹ÂÍ^˙{≠∏ÒF‹ô†¬
++yº‚B
++)Ä¿Åkòçz †CäsêÄÇ/ÏAÃ@êÄ	úÕ> ∏ÉuÍúRxt, `Ü
++§—Ä5(∫”
++)Í –œ:£»(»xÉ8A0(ŒÉär»èêÏ§r$+5`Û1PPÅ)˛ÕÀt‘aáï ‰3+6Úã@ﬂ¨!ú)Ù–À&p∏G*‘3K :‚•@”h∞¡"àpå∆¿+ rÉ Ñ<ë4!©Bå{¿0i+ÑbJ»2"MSäü[⁄êÉ©É8!#ù«ËÉ\ñJH!≈Ä3+Aﬂ4Ûã/~Ë†0œ¯*Q@ ;
+\ No newline at end of file
+Index: modules/org.pathvisio.desktop/resources/com/nexes/wizard/nextIcon.gif
+===================================================================
+--- modules/org.pathvisio.desktop/resources/com/nexes/wizard/nextIcon.gif	(revision 0)
++++ modules/org.pathvisio.desktop/resources/com/nexes/wizard/nextIcon.gif	(revision 3633)
+@@ -0,0 +1,13 @@
++GIF89a  ˜      ´‡,07=tQoûÆº“1o0m.j.i%S0k.g	1l	0j	0i
++1j3m5p3m2k	'R+4n6o5o8r5l5m8p7o8n9s6l?|9o*R9q>w:p9o<r>t;q<pB|=s?u=q?sBx@tE~@sAtBvBu Cv"G|!Dw$IÅ&KÅ#Ew)MÇ'Iz*K|,NÅ+L},M}.O/P2TÖ0QÄ1RÅ3SÇ9\è4TÇ;]è>aî>_êDhú?^åEdëNnùKiïRqûWtû[wüeÅ©fÇ™fÅ©d~•kÑ´nàÆuèµtå∞wè≥yëµzíµzë¥ñ∏}îµÇô∫áùΩã†øô¨»ô´«ó™≈õÆ…ö≠»ü∞ ¢≥Õ£¥Õ£≥ÀzÜòß∑œ©π–¨ª“´∫—±ø‘¥¬÷≥¡’π∆Ÿ¿Ã›øÀ‹ƒœﬂ;2%L
++.`4l5j
++ >1GÑA{;o+$BAyDzEz@tEyF{!G{;e!Fy"Gz#Hz$J{#Gy)Rã(OÖ$Gx%I{%Hy(K|)K{21Xç-O~/SÇ4Yç3UÉ2SÅ<dò7Yâ5VÑ6WÑ7YÜ$:W8XÖIlùMq°RqúPnòXy•[|®aÄ´a©fÇ©+7GK^xqå≤âüæå¢¡ã°¿jzêñ´»í¶¬T^l∑≈ÿª»⁄Ω €∆—‡À’‚;|IÜ2YDz Nâ&Té3^ï5XÖ7Zá2=K2Zà5_åIÄL$TÜmêµzü¿
++Oá)dî≤ ›\è"gò>´ã≥–]îiõ'p†dúx™^†∆´œ„+s®o£"{´xÆ≥ÅµÄ≥Gú≈â≈·ã¡ãΩnº‹yƒ‚ôŒë∆õœî«î«°“5ÆŸ´‡¨‡§ÿ°÷û“B∫‚¨‡ˇˇˇ!˘  ˇ ,       ˇ ˇ	ËØ;l¿
++¿QSmùΩÅ#ˆGåœû;u⁄¯*„EÀ∂yÊÉGåÿ0=yÏ»IsÜÃ+SN•ôè›∞a|Ù√®ë£XPÇ Ò›û£¬Ú‹°ÛFM.1[™D1ÉÉsÔ·π√ıéù:n“Ë√%VÃ<O 79sÍÃâ#‡W/]ep—í¬Ñ«á(ÍˆÔû4l÷¨·†±≥[≥\5…TÅ¡ DƒgÊÃ.]ª7ΩJ"+(lpb9j_¿Ñ	¶À-[£GÍhu¢0≤]…Rñ+¥d≈rµÍSÓ∆"ΩÄQC⁄+*Tê“Íâ©e åˇ#î≈7tPr¬ûâíQ†0%;Ù«œs éj‡Ë°…í<Ï0!T–«}Ç("â+:h¬…”DÛApÄ˜)r#èË–√Éû ·M7,∞@T0ö!# √H#êP¢°Ñ¢N;D0Åå@H!%,Ú"$ëXÚC'@‘XÑ(˚¸cçt¿	*§‡BèLR…&HJHîé@Úà Ç	(¥ É5x¯ ^ÇôƒœË3–9* GCõ¸˝‡	çr.Å
++3ÙDTŒû˚i‚'çDQä†©®‚NHˇ†3âÉ]Ü‚(§¨@S•Ò„Õü°4˙(*©4céù†ƒè:⁄\S
++)◊|„´ ;
+\ No newline at end of file
+Index: modules/org.pathvisio.desktop/resources/com/nexes/wizard/wizard.properties
+===================================================================
+--- modules/org.pathvisio.desktop/resources/com/nexes/wizard/wizard.properties	(revision 0)
++++ modules/org.pathvisio.desktop/resources/com/nexes/wizard/wizard.properties	(revision 3633)
+@@ -0,0 +1,13 @@
++#
++# wizard.properties
++#
++
++backButtonText=Back
++nextButtonText=Next
++cancelButtonText=Cancel
++finishButtonText=Finish
++
++backButtonIcon=backIcon.gif
++nextButtonIcon=nextIcon.gif
++cancelButtonIcon=cancelIcon.gif
++finishButtonIcon=finishIcon.gif
+Index: modules/org.pathvisio.desktop/resources/com/nexes/wizard/backIcon.gif
+===================================================================
+--- modules/org.pathvisio.desktop/resources/com/nexes/wizard/backIcon.gif	(revision 0)
++++ modules/org.pathvisio.desktop/resources/com/nexes/wizard/backIcon.gif	(revision 3633)
+@@ -0,0 +1,16 @@
++GIF89a  ˜      ´‡~î∑®∑œ≠ª“!N.j0l.g1n	1l	/i	/g$O
++2k#K+7s3m2k1i5o8r5l6p5m6n9q7l:t9q>w7k:p9o,U;q=t<q=r+P<qC}=q?u?s@s F@tBuAt!Ez Cv!Dv%JÅ"Dw#Fx#Ex%I}5Z)MÇ'Iz"*K|+L},M}/PÇ.O/P5Yç0QÄ1RÅ5Vá3SÇ9\è4TÇ:[ã<^è?`ë<[äBaé"1GIgîNlöPoùQpûRqûMjïTqõ\x†`|•	dÄ™fÇ™fÅ©gÅßlÜ´rã±pà≠yëµwè≤zíµÄñ∑áùæâüøç¢¡ë¶≈ñ™«ñ©∆ï®ƒô¨»õÆ…ö≠»ô´∆úÆ»ü±À§µŒ¢≥Ãß∑œ¶∂Õ©π–ÆΩ”∂ƒÿ¥¬÷≥¡’π∆ŸøÀ‹.3p	5s	3m
++3m	+X5o<x:t A6m5j=x<t9nAz;o?u
++1ByBwEz3X Ey!G{#H{'B$Gx%I{%Hy'L}'J{)K{-O~1TÇ2SÅ5VÑ6WÑ7YÜ=bì8XÖPrûPqùCWsdÅ©fÇ©:J_rèµ=L`sé≥f}ùôºÄöºÅô∫Üúªã°¿é§¬¢≥À•∂Œ´ª—∞ø‘ª»⁄Ω €¬Œﬁ«“·∆—‡À’„9w
++;z1
++:v>~%J!A?z>t)M@y-R8F{/WmáK} F|&XãYÑÆOàÇ°ø,eîI|¶&cì_ñ$iö(mú≠…›cò's£Wñædõq§tßRõƒr™}Æm±”Ö∏à∫Ö∂õÃ„Ö∫ç¬
++Åµî«C£Õq¡·+ñ…#üœM∑ﬁWΩ‚™ﬂ®›û”¢◊†”¨›1∂·ˇˇˇ!˘  ˇ ,       ˇ ˇ	¯œﬂºo|tŸÅÉÕ\=|#
++Ù◊ÿØ>y‹bCkåmÒ$ºòØ^ªˆàÉ¶L,VúîÀ'qﬁØ_ΩzÒ“CÄGèWûYqçÊ@{º˙Ù·≈G\pj	¯Ç% åÿOóûØztÂöÛ∆÷,0Y§,…°É	Ó¶´3‡Œù∏‰¥1˚j*(=DX !5|˝÷¥y„∆M5ij≈jï
++
++ÄÀ'⁄¬ù<3gj°©u∆å¨h¨.´–@ÇŒ#¿â#Ü1∞\iY}ŸœBàÖ(¡¬ôµ.´∏pQ≈¿3e¡à™¿»
++/`ú™RÖ )´°]ˇ+&LX°EãF®hÉÜçRMö0IB§˘0c»ñyx¥‚≈7lRÕ5‘‡B
++2MsÕú 	4»C'‹pP!	 ƒrLsî‡ê	û¯PÕ9pÄÇÅ!ä,”3ê®¶√Ñ> ÒI9˙‚@PpÅãx‡A$ëLb	&=Ëê„'CAœ?„XÄAt0	+H2I%óh“…ìCJ7Ìì# å`-¿0ÉÑûËXf(Jà2•@Ôîp{3àH‚üQû¢å¬ND j√àczhû£åÇéHÔHCßùF ëË(§¨#Rö‰pí£°àébJ8¸åJ–>Ít≥+(Jd„+;≠J ;
+\ No newline at end of file
+Index: modules/org.pathvisio.desktop/resources/com/nexes/wizard/finishIcon.gif
+===================================================================
+--- modules/org.pathvisio.desktop/resources/com/nexes/wizard/finishIcon.gif	(revision 0)
++++ modules/org.pathvisio.desktop/resources/com/nexes/wizard/finishIcon.gif	(revision 3633)
+@@ -0,0 +1,14 @@
++GIF89a  ˜  ~ƒq ´‡~î∑®∑œ≠ª“.j0l#N.g1n	1l
++5r	/h	/g
++2k3n2k+6r1i+4n
++'Q5o5l6p5m8q6n6l:t9q@|=v9o;q=t=r<qC}=q?u?s@s F@tBuAt!Ez Cv!Dv"Dw#Fx#Ex&KÅ'Iz*K|+L},M}.O/P0QÄ1RÅ5Vá3SÇ9\è4TÇ<^è?`ë<[äBaéLlõIgîPoùQpûRqûMjïTqõZv†dÇ≠`|•cÄ™^y†fÇ™fÅ©gÅßlÜ´rã±pà≠vêµwè≤zíµÄñ∑áùΩâüøç¢¡ë¶≈ñ™«ï®ƒô¨»õÆ…ö≠»ô´∆úÆ»ü±À§µŒ¢≥Ãß∑œ¶∂Õ©π–ÆΩ”∂ƒÿ¥¬÷≥¡’π∆ŸøÀ‹3p	3m
++3m9s5j9n6j <;p;o@uAx<lEzBwDy<jF{ Ey!G{#H{$Gx%I{%Hy'L}'@'J{)K{*C2Zê-O~3Yç1TÇ2SÅ5VÑ6WÑ7YÜ=bì8XÖ>`è<]ã$7PRu£PrûPqùZ|©dÅ©fÇ©mã≥rèµsé≥ôºÅô∫Üúªã°¿é§¬¢≥À•∂Œ´ª—∞ø‘ª»⁄Ω €¬Œﬁ∆—‡À’„=t?s9`ë=bë6FYwî∏G{K}.K0No]ÉÆF|0S&Xã2IKw§Pf|IWe+-L,C0I6Q4LÇ°ø+A,eî	Sä&cì$iö(mú≠…›cô's£Wñæq§tßRõƒr™}Æm±”Ö∏à∫Ö∂õÃ„É∏ç¬î«C£Õq¡·+ñ…#üœM∑ﬁWΩ‚!?J'GS™ﬂ®›û”¢◊†”¨›1∂·=^^*ROJgd7bSAnSDqUbùej©it∂mr¥lr≥l|¡pzæo{øpˇˇˇ!˘  ˇ ,       ˇ ˇ	¯ﬁ∏hpZ©!£ÏZ9u#
++ÑÁMV¨8m®s
++Àa·$<'À",WoîÈ¢≈
++%C¨≠ì8.V,X∞^π!ÄÜ£«%Dv¨h6s†πWq‚ºÇ„ÜÕ*2®Pab§á§+|◊ çW7≠Xùì T'J*-⁄Ä†ÅÑoµ•∞fÕÄUf¬î%ıƒì&Gˆ0Ä`«ó∫w_¬å#&Ã/®Jçj¬)S∞}ıﬁ ‚õ∏-\PuA≈Öÿ0\¢zq≤ïlÄz,p!çñ,∏≥\π5oÿ'aµíÈö¬$P‰Í%%Tî(†û‹Úè◊#d¯àÁÀÉgOÚ,:%ˇIÇ‰Hë"õ¸ÒKáÏûˆ<wBòH—FåKBÑ˘)“Æ~ƒπ@>ÀË¡«	+ºÉâ C√É*î‡¡/Úßù1¥Ù00X#“pPG	 «≈–s!B»á‘–à+¿`SÄ(@«‘±=˘†„«É∏##6‡ â5ÏÃ·¿TpA≥|påêÉÇ"H*©√‰¸#çhêA!àp ÇbóIB¢ì<#P;≥‹°G#†ê/xÿàótAIòÅBrÙΩ £å7@í√ìZI7}”hG⁄ )•ñVíçH‡Ë"(°>PRI%ñp#“ù’(í‰§ï™ä…4ÓºJP;€<„å$@0M7πJ ;
+\ No newline at end of file
+Index: modules/org.pathvisio.desktop/META-INF/MANIFEST.MF
+===================================================================
+--- modules/org.pathvisio.desktop/META-INF/MANIFEST.MF	(revision 3596)
++++ modules/org.pathvisio.desktop/META-INF/MANIFEST.MF	(working copy)
+@@ -3,9 +3,17 @@
+ Bundle-Name: org.pathvisio.desktop
+ Bundle-SymbolicName: org.pathvisio.desktop
+ Bundle-Version: 2.0.11
+-Bundle-RequiredExecutionEnvironment: JavaSE-1.6
+-Import-Package: org.osgi.framework;version="1.5.0"
+ Bundle-Activator: org.pathvisio.desktop.Activator
++Export-Package: com.nexes.test,
++ com.nexes.wizard,
++ org.pathvisio.desktop,
++ org.pathvisio.desktop.data,
++ org.pathvisio.desktop.gex,
++ org.pathvisio.desktop.model,
++ org.pathvisio.desktop.parameter,
++ org.pathvisio.desktop.plugin,
++ org.pathvisio.desktop.util,
++ org.pathvisio.desktop.visualization
+ Require-Bundle: org.pathvisio.core;bundle-version="2.0.11",
+  org.pathvisio.gui;bundle-version="2.0.11",
+  derby;bundle-version="10.4.2000000",
+@@ -14,37 +22,32 @@
+  org.pathvisio.browserlauncher;bundle-version="1.0.0",
+  org.pathvisio.jgoodies.forms;bundle-version="1.2.0",
+  com.springsource.org.jdom;bundle-version="1.1.0",
+- org.pathvisio.batik.anim;bundle-version="1.7.0",
+- org.pathvisio.batik.awt.util;bundle-version="1.7.0",
+- org.pathvisio.batik.bridge;bundle-version="1.7.0",
+- org.pathvisio.batik.codec;bundle-version="1.7.0",
+- org.pathvisio.batik.css;bundle-version="1.7.0",
+- org.pathvisio.batik.dom;bundle-version="1.7.0",
+- org.pathvisio.batik.ext;bundle-version="1.7.0",
+- org.pathvisio.batik.extension;bundle-version="1.7.0",
+- org.pathvisio.batik.gvt;bundle-version="1.7.0",
+- org.pathvisio.batik.parser;bundle-version="1.7.0",
+- org.pathvisio.batik.script;bundle-version="1.7.0",
+- org.pathvisio.batik.svg.dom;bundle-version="1.7.0",
+- org.pathvisio.batik.svggen;bundle-version="1.7.0",
+- org.pathvisio.batik.transcoder;bundle-version="1.7.0",
+- org.pathvisio.batik.util;bundle-version="1.7.0",
+- org.pathvisio.batik.xml;bundle-version="1.7.0",
+  org.pathvisio.pdftranscoder;bundle-version="1.7.0",
+- org.pathvisio.xml.apis;bundle-version="1.7.0",
+- org.pathvisio.xml.apis.ext;bundle-version="1.7.0",
+  org.bridgedb;bundle-version="1.1.0",
+  org.bridgedb.bio;bundle-version="1.1.0",
+  org.bridgedb.rdb;bundle-version="1.1.0",
+  org.bridgedb.rdb.construct;bundle-version="1.1.0",
+- org.bridgedb.gui;bundle-version="1.1.0"
+-Export-Package: com.nexes.test,
+- com.nexes.wizard,
+- org.pathvisio.desktop,
+- org.pathvisio.desktop.data,
+- org.pathvisio.desktop.gex,
+- org.pathvisio.desktop.model,
+- org.pathvisio.desktop.parameter,
+- org.pathvisio.desktop.plugin,
+- org.pathvisio.desktop.util,
+- org.pathvisio.desktop.visualization
++ org.bridgedb.gui;bundle-version="1.1.0",
++ org.apache.batik.bridge;bundle-version="1.7.0",
++ org.apache.batik.css;bundle-version="1.7.0",
++ org.apache.batik.dom;bundle-version="1.7.0",
++ org.apache.batik.dom.svg;bundle-version="1.7.0",
++ org.apache.batik.ext.awt;bundle-version="1.7.0",
++ org.apache.batik.extension;bundle-version="1.7.0",
++ org.apache.batik.parser;bundle-version="1.7.0",
++ org.apache.batik.svggen;bundle-version="1.7.0",
++ org.apache.batik.transcoder;bundle-version="1.7.0",
++ org.apache.batik.util;bundle-version="1.7.0",
++ org.apache.batik.util.gui;bundle-version="1.7.0",
++ org.apache.batik.xml;bundle-version="1.7.0",
++ javax.xml;bundle-version="1.3.4",
++ org.apache.xml.resolver;bundle-version="1.2.0",
++ org.apache.xml.serializer;bundle-version="2.7.1",
++ org.w3c.css.sac;bundle-version="1.3.1",
++ org.w3c.dom.events;bundle-version="3.0.0",
++ org.w3c.dom.smil;bundle-version="1.0.1",
++ org.w3c.dom.svg;bundle-version="1.1.0",
++ org.apache.felix.bundlerepository;bundle-version="1.6.6",
++ org.osgi.impl.bundle.bindex;bundle-version="2.2.0"
++Bundle-RequiredExecutionEnvironment: JavaSE-1.6
++Import-Package: org.osgi.framework;version="1.5.0"
+Index: modules/org.pathvisio.desktop/src/org/pathvisio/desktop/dialog/ResourceTableModel.java
+===================================================================
+--- modules/org.pathvisio.desktop/src/org/pathvisio/desktop/dialog/ResourceTableModel.java	(revision 0)
++++ modules/org.pathvisio.desktop/src/org/pathvisio/desktop/dialog/ResourceTableModel.java	(revision 3633)
+@@ -0,0 +1,28 @@
++package org.pathvisio.desktop.dialog;
++
++/*
++ * Developed by Panagiotis Peikidis
++ * http://pekalicious.com/blog/custom-jpanel-cell-with-jbuttons-in-jtable/
++ */
++
++import java.util.List;
++
++import javax.swing.table.AbstractTableModel;
++import javax.swing.table.TableModel;
++
++import org.apache.felix.bundlerepository.Resource;
++
++public class ResourceTableModel extends AbstractTableModel implements TableModel{
++	List<Resource> resources;
++	
++	public ResourceTableModel(List<Resource> resources) {
++		this.resources = resources;
++	}
++	
++	public Class<?> getColumnClass(int columnIndex) { return Resource.class; }
++	public int getColumnCount() { return 1; }
++	public String getColumnName(int columnIndex) { return "Plug-ins"; }
++	public int getRowCount() { return (resources == null) ? 0 : resources.size(); }
++	public Object getValueAt(int rowIndex, int columnIndex) { return (resources == null) ? null : resources.get(rowIndex); }
++	public boolean isCellEditable(int arg0, int arg1) { return true; }
++}
+Index: modules/org.pathvisio.desktop/src/org/pathvisio/desktop/dialog/ResourceCell.java
+===================================================================
+--- modules/org.pathvisio.desktop/src/org/pathvisio/desktop/dialog/ResourceCell.java	(revision 0)
++++ modules/org.pathvisio.desktop/src/org/pathvisio/desktop/dialog/ResourceCell.java	(revision 3633)
+@@ -0,0 +1,143 @@
++package org.pathvisio.desktop.dialog;
++
++/*
++ * Developed by Panagiotis Peikidis
++ * http://pekalicious.com/blog/custom-jpanel-cell-with-jbuttons-in-jtable/
++ */
++
++import java.awt.BorderLayout;
++import java.awt.Component;
++import java.awt.event.ActionEvent;
++import java.awt.event.ActionListener;
++import java.net.URL;
++
++import javax.swing.AbstractCellEditor;
++import javax.swing.Box;
++import javax.swing.BoxLayout;
++import javax.swing.ImageIcon;
++import javax.swing.JButton;
++import javax.swing.JLabel;
++import javax.swing.JOptionPane;
++import javax.swing.JPanel;
++import javax.swing.JTable;
++import javax.swing.border.LineBorder;
++import javax.swing.table.TableCellEditor;
++import javax.swing.table.TableCellRenderer;
++
++import org.apache.felix.bundlerepository.Resource;
++import org.pathvisio.core.util.Resources;
++import org.pathvisio.desktop.PvDesktop;
++import org.pathvisio.desktop.plugin.LocalRepository;
++import org.pathvisio.desktop.plugin.OnlineRepository;
++
++public class ResourceCell extends AbstractCellEditor implements TableCellEditor, TableCellRenderer{
++	
++	private Resource resource;
++	
++	private JPanel panel;
++	private JPanel showButton;
++	
++	private JLabel text;
++	
++	private JButton button;
++	private JButton buttonInfo;
++	
++	private PvDesktop pvDesktop;
++	
++	public ResourceCell(boolean installed, PvDesktop pvDesktop) {
++		this.pvDesktop = pvDesktop;
++		text = new JLabel();
++		showButton = getButtonPanel(installed);
++		panel = new JPanel(new BorderLayout());
++		URL imgURL = Resources.getResourceURL("plugin.png");
++		if (imgURL != null) {
++			ImageIcon icon = new ImageIcon(imgURL);
++			JLabel label = new JLabel("   ", icon, JLabel.CENTER);
++			panel.add(label, BorderLayout.WEST);
++	    }
++		panel.add(text, BorderLayout.CENTER);
++		panel.add(showButton, BorderLayout.EAST);
++	}
++	
++	private void updateData(Resource res, boolean isSelected, JTable table) {
++		this.resource = res;
++		
++		text.setText("<html><b>" + res.getSymbolicName() + ", " + res.getVersion() + "</b><br>" + "<i>Short Description</i>" + "</html>");
++		if (isSelected) {
++			showButton.setBackground(table.getSelectionBackground());
++			showButton.setBorder(new LineBorder(table.getSelectionBackground(), 5));
++			panel.setBackground(table.getSelectionBackground());
++		}else{
++			showButton.setBackground(table.getSelectionForeground());
++			showButton.setBorder(new LineBorder(table.getSelectionForeground(), 5));
++			panel.setBackground(table.getSelectionForeground());
++		}		
++	}
++	
++	private JPanel getButtonPanel(boolean installed) {
++		button = new JButton();
++		button.setAlignmentX(Component.CENTER_ALIGNMENT);
++		if(!installed) {
++			button.setText("  Install ");
++			button.addActionListener(new ActionListener() {
++				public void actionPerformed(ActionEvent arg0) {
++					JOptionPane.showMessageDialog(null, "Install:  " + resource.getSymbolicName());
++					System.out.println("ACTION");
++					OnlineRepository repo = pvDesktop.getPluginManager().getRepositoryManager().getRepository(resource);
++					if(repo != null) {
++						repo.installResource(resource);
++					}
++				}
++			});
++		} else {
++			button.setText("Remove");
++			button.addActionListener(new ActionListener() {
++				public void actionPerformed(ActionEvent arg0) {
++					LocalRepository repo = pvDesktop.getPluginManager().getRepositoryManager().getLocalRepository();
++					repo.uninstallResource(resource);
++					JOptionPane.showMessageDialog(null, "Remove:  " + resource.getSymbolicName());
++				}
++			});
++		}
++		
++		buttonInfo = new JButton("Get Info");
++		buttonInfo.setAlignmentX(Component.CENTER_ALIGNMENT);
++		buttonInfo.addActionListener(new ActionListener() {
++			
++			@Override
++			public void actionPerformed(ActionEvent arg0) {
++				JOptionPane.showMessageDialog(null, "Get Info:  " + resource.getSymbolicName());
++			}
++		});
++		
++		JPanel panel = new JPanel();
++		panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
++		panel.add(Box.createVerticalGlue());
++		panel.add(button, JPanel.CENTER_ALIGNMENT);
++		panel.add(Box.createVerticalGlue());
++		panel.add(buttonInfo, JPanel.CENTER_ALIGNMENT);
++		panel.add(Box.createVerticalGlue());
++		return panel;
++	}
++	
++	
++
++	public Component getTableCellEditorComponent(JTable table, Object value,
++			boolean isSelected, int row, int column) {
++		Resource feed = (Resource)value;
++		updateData(feed, true, table);
++		return panel;
++	}
++
++	public Object getCellEditorValue() {
++		return null;
++	}
++
++	public Component getTableCellRendererComponent(JTable table, Object value,
++			boolean isSelected, boolean hasFocus, int row, int column) {
++		Resource feed = (Resource)value;
++
++		updateData(feed, isSelected, table);
++		return panel;
++	}
++}
+Index: modules/org.pathvisio.desktop/src/org/pathvisio/desktop/dialog/PluginManagerDialog.java
+===================================================================
+--- modules/org.pathvisio.desktop/src/org/pathvisio/desktop/dialog/PluginManagerDialog.java	(revision 0)
++++ modules/org.pathvisio.desktop/src/org/pathvisio/desktop/dialog/PluginManagerDialog.java	(revision 3633)
+@@ -0,0 +1,197 @@
++package org.pathvisio.desktop.dialog;
++
++import java.awt.BorderLayout;
++import java.awt.Color;
++import java.awt.Component;
++import java.awt.Dimension;
++import java.util.ArrayList;
++import java.util.Enumeration;
++import java.util.List;
++
++import javax.swing.JDialog;
++import javax.swing.JLabel;
++import javax.swing.JPanel;
++import javax.swing.JScrollPane;
++import javax.swing.JTable;
++import javax.swing.JTree;
++import javax.swing.event.TreeSelectionEvent;
++import javax.swing.event.TreeSelectionListener;
++import javax.swing.tree.DefaultMutableTreeNode;
++import javax.swing.tree.TreeNode;
++import javax.swing.tree.TreePath;
++import javax.swing.tree.TreeSelectionModel;
++
++import org.apache.felix.bundlerepository.Resource;
++import org.pathvisio.desktop.PvDesktop;
++import org.pathvisio.desktop.plugin.OnlineRepository;
++
++public class PluginManagerDialog extends JDialog {
++
++	private JDialog dlg;
++	private PvDesktop pvDesktop;
++	private JPanel mainPanel;
++	
++	public PluginManagerDialog(PvDesktop pvDesktop) {
++		this.pvDesktop = pvDesktop;
++		dlg = this;
++	}
++	
++	public void createAndShowGUI() {
++		dlg.setPreferredSize(new Dimension(610, 430));
++		dlg.setTitle("Plug-in Manager");
++		dlg.setLayout(new BorderLayout());
++		dlg.setResizable(false);
++		
++		// top panel = search bar
++		
++		// center panel = description
++		mainPanel = new JPanel();
++		dlg.add(getMainPanel("overview", null), BorderLayout.CENTER);
++		
++		// west panel = overview
++		dlg.add(getOverviewPanel(), BorderLayout.WEST);
++		dlg.setAlwaysOnTop(true);
++		dlg.pack();
++		dlg.setLocationRelativeTo(pvDesktop.getFrame());
++		dlg.setVisible(true);
++	}
++
++	private Component getOverviewPanel() {
++		
++		DefaultMutableTreeNode top = new DefaultMutableTreeNode ("Plug-in Manager       ");
++		tree = new JTree(top);
++		tree.getSelectionModel().setSelectionMode(TreeSelectionModel.SINGLE_TREE_SELECTION);
++		tree.addTreeSelectionListener(createTreeSelectionListener());
++		
++		createNodes(top);
++		
++		expandAll(tree, new TreePath(top), true);
++		
++		JScrollPane treeView = new JScrollPane(tree);
++		treeView.setBackground(Color.white);
++		 
++		return treeView;
++	}
++	
++	private JTree tree;
++	
++	private TreeSelectionListener createTreeSelectionListener() {
++		TreeSelectionListener listener = new TreeSelectionListener() {
++			
++			@Override
++			public void valueChanged(TreeSelectionEvent e) {
++				DefaultMutableTreeNode node = (DefaultMutableTreeNode)tree.getLastSelectedPathComponent();
++
++				if (node == null)
++					return;
++
++				Object nodeInfo = node.getUserObject();
++				if(nodeInfo.equals("Plug-in Manager       ")) {
++					// TODO: overview page
++					System.out.println("OVERVIEW");
++					updateMainPanel("overview", null);
++				} else if (nodeInfo.equals("Available Plug-ins")) {
++					// TODO: show all available plug-ins
++					System.out.println("ALL PLUGINS");
++					System.out.println(pvDesktop.getPluginManager().getRepositoryManager().getAvailableResources());
++					updateMainPanel("avail", null);
++				} else if (nodeInfo instanceof OnlineRepository) {
++					// TODO: show available plug-ins for specific Repository
++					System.out.println("PLUGINS FOR REPOSITORY " + nodeInfo);
++					updateMainPanel("avail", (OnlineRepository) nodeInfo);
++				} else if (nodeInfo.equals("Installed Plug-ins")) {
++					// TODO: show list of installed plugins
++					System.out.println("INSTALLED PLUGINS");
++					System.out.println(pvDesktop.getPluginManager().getRepositoryManager().getInstalledResources());
++					updateMainPanel("install", null);
++					
++				}
++				
++			}
++		};
++		return listener;
++	}
++	
++	private void updateMainPanel(String msg, OnlineRepository repo) {
++		mainPanel.removeAll();
++		mainPanel = getMainPanel(msg, repo);
++		mainPanel.updateUI();
++		mainPanel.revalidate();
++	}
++
++	private JPanel getMainPanel(String msg, OnlineRepository repo) {
++		mainPanel.setBackground(Color.WHITE);
++		if(repo == null) {
++			if(msg.equals("overview")) {
++				JLabel label = new JLabel("Overview");
++				mainPanel.add(label);
++			} else if (msg.equals("avail")) {
++				List<Resource> resources = new ArrayList<Resource>();
++				for(Resource res : pvDesktop.getPluginManager().getRepositoryManager().getAvailableResources()) {
++					resources.add(res);
++				}
++				
++				JTable table = new JTable(new ResourceTableModel(resources));
++				table.setSelectionForeground(new Color(245, 245, 245));
++				table.setSelectionBackground(Color.white);
++				table.setDefaultRenderer(Resource.class, new ResourceCell(false, pvDesktop));
++				table.setDefaultEditor(Resource.class, new ResourceCell(false, pvDesktop));
++				table.setRowHeight(70);
++				
++				mainPanel.add(new JScrollPane(table));
++			} else if (msg.equals("install")) {
++				List<Resource> resources = new ArrayList<Resource>();
++				for(Resource res : pvDesktop.getPluginManager().getRepositoryManager().getInstalledResources()) {
++					resources.add(res);
++				}
++				
++				JTable table = new JTable(new ResourceTableModel(resources));
++				table.setSelectionForeground(new Color(245, 245, 245));
++				table.setSelectionBackground(Color.white);
++				table.setDefaultRenderer(Resource.class, new ResourceCell(true, pvDesktop));
++				table.setDefaultEditor(Resource.class, new ResourceCell(true, pvDesktop));
++				table.setRowHeight(70);
++				
++				mainPanel.add(new JScrollPane(table));
++			}
++		} else {
++			
++		}
++		return mainPanel;
++	}
++
++	private void createNodes(DefaultMutableTreeNode top) {
++	    DefaultMutableTreeNode repositories = null;
++	    DefaultMutableTreeNode installed = null;
++	    
++	    repositories = new DefaultMutableTreeNode("Available Plug-ins");
++	    top.add(repositories);
++
++	    installed = new DefaultMutableTreeNode("Installed Plug-ins");
++	    top.add(installed);
++	    
++//	    for(Repository repo : pvDesktop.getPluginManager().getPreferences().getRepositories()) {
++//	    	DefaultMutableTreeNode repoNode = new DefaultMutableTreeNode(repo);
++//	    	repositories.add(repoNode);
++//	    }
++	}
++	
++	private void expandAll(JTree tree, TreePath parent, boolean expand) {
++	    // Traverse children
++	    TreeNode node = (TreeNode)parent.getLastPathComponent();
++	    if (node.getChildCount() >= 0) {
++	        for (Enumeration e=node.children(); e.hasMoreElements(); ) {
++	            TreeNode n = (TreeNode)e.nextElement();
++	            TreePath path = parent.pathByAddingChild(n);
++	            expandAll(tree, path, expand);
++	        }
++	    }
++
++	    // Expansion or collapse must be done bottom-up
++	    if (expand) {
++	        tree.expandPath(parent);
++	    } else {
++	        tree.collapsePath(parent);
++	    }
++	}
++}
+Index: modules/org.pathvisio.desktop/src/org/pathvisio/desktop/StandaloneActions.java
+===================================================================
+--- modules/org.pathvisio.desktop/src/org/pathvisio/desktop/StandaloneActions.java	(revision 3596)
++++ modules/org.pathvisio.desktop/src/org/pathvisio/desktop/StandaloneActions.java	(working copy)
+@@ -31,6 +31,7 @@
+ 
+ import org.pathvisio.core.Globals;
+ import org.pathvisio.core.util.Resources;
++import org.pathvisio.desktop.dialog.PluginManagerDialog;
+ import org.pathvisio.gui.SwingEngine;
+ 
+ /**
+@@ -116,8 +117,10 @@
+ 
+ 		public void actionPerformed(ActionEvent e)
+ 		{
+-			PluginManagerDlg dlg = new PluginManagerDlg (pvDesktop);
++			PluginManagerDialog dlg = new PluginManagerDialog(pvDesktop);
+ 			dlg.createAndShowGUI();
++//			PluginManagerDlg dlg = new PluginManagerDlg (pvDesktop);
++//			dlg.createAndShowGUI();
+ 		}
+ 	}
+ 
+Index: modules/org.pathvisio.desktop/src/org/pathvisio/desktop/plugin/OnlineRepository.java
+===================================================================
+--- modules/org.pathvisio.desktop/src/org/pathvisio/desktop/plugin/OnlineRepository.java	(revision 0)
++++ modules/org.pathvisio.desktop/src/org/pathvisio/desktop/plugin/OnlineRepository.java	(revision 3633)
+@@ -0,0 +1,175 @@
++package org.pathvisio.desktop.plugin;
++
++import java.io.BufferedOutputStream;
++import java.io.File;
++import java.io.FileOutputStream;
++import java.io.IOException;
++import java.io.InputStream;
++import java.io.OutputStream;
++import java.net.URL;
++import java.net.URLConnection;
++import java.util.ArrayList;
++import java.util.List;
++
++import org.apache.felix.bundlerepository.Reason;
++import org.apache.felix.bundlerepository.RepositoryAdmin;
++import org.apache.felix.bundlerepository.Resolver;
++import org.apache.felix.bundlerepository.Resource;
++import org.osgi.framework.BundleContext;
++import org.osgi.framework.InvalidSyntaxException;
++import org.pathvisio.core.preferences.GlobalPreference;
++import org.pathvisio.desktop.PvDesktop;
++
++public class OnlineRepository {
++
++	private URL url;
++	private PvDesktop pvDesktop;
++	private List<Resource> resources;
++	private String name;
++	
++	public OnlineRepository(URL url, PvDesktop pvDesktop) {
++		this.url = url;
++		resources = new ArrayList<Resource>();
++		this.pvDesktop = pvDesktop;
++	}
++
++	public void initialize() {
++		BundleContext context = pvDesktop.getContext();
++		RepositoryAdmin admin = (RepositoryAdmin) context.getService(context.getServiceReference(RepositoryAdmin.class.getName()));
++		if(admin != null) {
++			try {
++				admin.addRepository(url);
++				org.apache.felix.bundlerepository.Repository [] repos = admin.listRepositories();
++				for(org.apache.felix.bundlerepository.Repository rep : repos) {
++					if(rep.getURI().toString().equals(url.toString())) {
++						name = rep.getName();
++//						System.out.println(name + "\t" + rep.getResources().length);
++						for(Resource res : rep.getResources()) {
++							resources.add(res);
++						}
++					}
++				}
++			} catch (Exception e) {
++				e.printStackTrace();
++			}
++		}
++	}
++	
++	public boolean installResource(Resource resource) {
++		if(resources.contains(resource)) {
++			BundleContext context = pvDesktop.getContext();
++			RepositoryAdmin admin = (RepositoryAdmin) context.getService(context.getServiceReference(RepositoryAdmin.class.getName()));
++			Resolver resolver = admin.resolver();
++			try {
++				Resource[] resources = admin.discoverResources("(symbolicname=" + resource.getSymbolicName()+ ")");
++				if(resources != null && resources.length > 0) {
++					resolver.add(resources[0]);
++					loadDependencies(resolver, resources[0]);
++				}
++				
++				for(Resource res : resolver.getAddedResources()) {
++					downloadFile(res.getURI(), res);
++				}
++				for(Resource res : resolver.getRequiredResources()) {
++					downloadFile(res.getURI(), res);
++				}
++				
++				resolver.resolve();
++				
++				RepositoryManager manager = pvDesktop.getPluginManager().getRepositoryManager();
++				manager.updateLocalRepository(context);
++				manager.getLocalRepository().initialize();
++				manager.getInstalledResources().add(resource);
++				manager.updateResourcesList();
++				pvDesktop.getPluginManager().startPlugins();
++			} catch (InvalidSyntaxException e) {
++				// TODO Auto-generated catch block
++				e.printStackTrace();
++			}
++		}
++		return false;
++	}
++	
++	final static int size=1024;
++	
++	private void downloadFile(String uri, Resource resource) {
++		File localFile = new File(GlobalPreference.getPluginDir(),resource.getSymbolicName()+"-"+resource.getVersion()+".jar");
++		OutputStream outStream = null;
++		URLConnection  uCon = null;
++
++		InputStream is = null;
++		try {
++				
++			byte[] buf;
++			int ByteRead;
++			outStream = new BufferedOutputStream(new FileOutputStream(localFile));
++			URL fileLocation = new URL(uri);
++			uCon = fileLocation.openConnection();
++			is = uCon.getInputStream();
++			buf = new byte[size];
++			while ((ByteRead = is.read(buf)) != -1) {
++				outStream.write(buf, 0, ByteRead);
++			}
++		} catch (Exception e) {
++			e.printStackTrace();
++		} finally {
++			try {
++				is.close();
++				outStream.close();
++			} catch (IOException e) {
++				// TODO Auto-generated catch block
++				e.printStackTrace();
++			}
++		}
++	}
++
++	private void loadDependencies(Resolver resolver, Resource resource) {
++		if(resolver.resolve()) {
++			for(Resource res : resolver.getRequiredResources()) {
++//				System.out.println("Deploying dependency: " + res.getPresentationName() + " (" + res.getSymbolicName() + ") " + res.getVersion());
++			}
++		} else {
++			Reason[] reqs = resolver.getUnsatisfiedRequirements();
++		    for (int i = 0; i < reqs.length; i++)
++		    {
++//		        System.out.println("Unable to resolve: " + reqs[i].getRequirement().getFilter());
++		    }
++		}
++	}
++
++	public URL getUrl() {
++		return url;
++	}
++
++	public void setUrl(URL url) {
++		this.url = url;
++	}
++
++	public List<Resource> getResources() {
++		return resources;
++	}
++
++	public void setResources(List<Resource> resources) {
++		this.resources = resources;
++	}
++
++	public String getName() {
++		return name;
++	}
++
++	public void setName(String name) {
++		this.name = name;
++	}
++
++	/**
++	 * it is not possible to uninstall a resource
++	 * from an online repository
++	 */
++	public boolean uninstallResource(Resource resource) {
++		return false;
++	}
++	
++	public String toString() {
++		return url.toString();
++	}
++}
+Index: modules/org.pathvisio.desktop/src/org/pathvisio/desktop/plugin/LocalRepository.java
+===================================================================
+--- modules/org.pathvisio.desktop/src/org/pathvisio/desktop/plugin/LocalRepository.java	(revision 0)
++++ modules/org.pathvisio.desktop/src/org/pathvisio/desktop/plugin/LocalRepository.java	(revision 3633)
+@@ -0,0 +1,171 @@
++package org.pathvisio.desktop.plugin;
++
++import java.io.File;
++import java.net.URL;
++import java.util.ArrayList;
++import java.util.List;
++
++import org.apache.felix.bundlerepository.Reason;
++import org.apache.felix.bundlerepository.RepositoryAdmin;
++import org.apache.felix.bundlerepository.Resolver;
++import org.apache.felix.bundlerepository.Resource;
++import org.osgi.framework.Bundle;
++import org.osgi.framework.BundleContext;
++import org.osgi.framework.BundleException;
++import org.osgi.framework.InvalidSyntaxException;
++import org.pathvisio.desktop.PvDesktop;
++
++public class LocalRepository {
++
++	private URL url;
++	private PvDesktop pvDesktop;
++	private List<Resource> resources;
++	private String name;
++	
++	
++	public LocalRepository(URL url, PvDesktop pvDesktop) {
++		this.url = url;
++		resources = new ArrayList<Resource>();
++		this.pvDesktop = pvDesktop;
++	}
++	
++	public void initialize() {
++		BundleContext context = pvDesktop.getContext();
++		RepositoryAdmin admin = (RepositoryAdmin) context.getService(context.getServiceReference(RepositoryAdmin.class.getName()));
++		if(admin != null) {
++			try {
++				admin.addRepository(url);
++				org.apache.felix.bundlerepository.Repository [] repos = admin.listRepositories();
++				for(org.apache.felix.bundlerepository.Repository rep : repos) {
++					if(rep.getURI().toString().equals(url.toString())) {
++						name = rep.getName();
++//						System.out.println(name + "\t" + rep.getResources().length);
++						for(Resource res : rep.getResources()) {
++							resources.add(res);
++							installResource(res);
++						}
++					}
++				}
++			} catch (Exception e) {
++				e.printStackTrace();
++			}
++		}
++	}
++
++	public boolean installResource(Resource resource) {
++		if(resources.contains(resource)) {
++			BundleContext context = pvDesktop.getContext();
++			RepositoryAdmin admin = (RepositoryAdmin) context.getService(context.getServiceReference(RepositoryAdmin.class.getName()));
++			Resolver resolver = admin.resolver();
++			try {
++				Resource[] resources = admin.discoverResources("(symbolicname=" + resource.getSymbolicName()+ ")");
++				if(resources != null && resources.length > 0) {
++					resolver.add(resources[0]);
++					loadDependencies(resolver, resources[0]);
++					
++					resolver.deploy(1);
++					
++					for(int i = 0; i < context.getBundles().length; i++) {
++						boolean found = false;
++						for(Resource res : resolver.getAddedResources()) {
++							if(res.getSymbolicName().equals(context.getBundles()[i].getSymbolicName())) {
++								context.getBundles()[i].start();
++								found = true;
++							}
++						}
++						if(!found) {
++							for(Resource res : resolver.getRequiredResources()) {
++								if(res.getSymbolicName().equals(context.getBundles()[i].getSymbolicName())) {
++									context.getBundles()[i].start();
++								}
++							}
++						}
++					}
++					if(pvDesktop.getPluginManager() != null) {
++						pvDesktop.getPluginManager().startPlugins();
++					}
++				}
++			} catch (InvalidSyntaxException e) {
++				// TODO Auto-generated catch block
++				e.printStackTrace();
++			} catch (BundleException e) {
++				// TODO Auto-generated catch block
++				e.printStackTrace();
++			}
++		}
++		return false;
++	}
++	
++	private void loadDependencies(Resolver resolver, Resource resource) {
++		if(resolver.resolve()) {
++			for(Resource res : resolver.getRequiredResources()) {
++//				System.out.println("Deploying dependency: " + res.getPresentationName() + " (" + res.getSymbolicName() + ") " + res.getVersion());
++			}
++		} else {
++			Reason[] reqs = resolver.getUnsatisfiedRequirements();
++		    for (int i = 0; i < reqs.length; i++)
++		    {
++//		        System.out.println("Unable to resolve: " + reqs[i].getRequirement().getFilter());
++		    }
++		}
++	}
++	
++	public URL getUrl() {
++		return url;
++	}
++
++	public void setUrl(URL url) {
++		this.url = url;
++	}
++
++	public List<Resource> getResources() {
++		return resources;
++	}
++
++	public void setResources(List<Resource> resources) {
++		this.resources = resources;
++	}
++
++	public String getName() {
++		return name;
++	}
++
++	public void setName(String name) {
++		this.name = name;
++	}
++
++	public boolean uninstallResource(Resource resource) {
++		BundleContext context = pvDesktop.getContext();
++		for(Bundle bundle : context.getBundles()) {
++			if(bundle.getSymbolicName().equals(resource.getSymbolicName())) {
++				try {
++					bundle.stop();
++					bundle.uninstall();
++					// TODO: add done functionality - removing menu items
++
++					File file = new File(resource.getURI().replace("file:", ""));
++					if(file.exists()) {
++						file.delete();
++						RepositoryManager manager = pvDesktop.getPluginManager().getRepositoryManager();
++						manager.getInstalledResources().remove(resource);
++						manager.updateLocalRepository(pvDesktop.getContext());
++						
++						manager.updateResourcesList();
++						return true;
++					}
++				} catch (BundleException e) {
++					e.printStackTrace();
++					return false;
++				}
++				
++			}
++		}
++		
++		return false;
++	}
++
++	@Override
++	public String toString() {
++		return url.toString();
++	}
++}
+Index: modules/org.pathvisio.desktop/src/org/pathvisio/desktop/plugin/RepositoryManager.java
+===================================================================
+--- modules/org.pathvisio.desktop/src/org/pathvisio/desktop/plugin/RepositoryManager.java	(revision 0)
++++ modules/org.pathvisio.desktop/src/org/pathvisio/desktop/plugin/RepositoryManager.java	(revision 3633)
+@@ -0,0 +1,166 @@
++package org.pathvisio.desktop.plugin;
++
++import java.io.File;
++import java.io.IOException;
++import java.net.MalformedURLException;
++import java.net.URL;
++import java.util.ArrayList;
++import java.util.List;
++
++import org.apache.felix.bundlerepository.Resource;
++import org.osgi.framework.BundleContext;
++import org.pathvisio.core.preferences.GlobalPreference;
++import org.pathvisio.desktop.PvDesktop;
++
++public class RepositoryManager {
++	private LocalRepository localRepository;
++	private List<OnlineRepository> repositories;
++	
++	private List<Resource> availableResources;
++	private List<Resource> installedResources;
++	
++	
++	private PvDesktop pvDesktop;
++	
++	public RepositoryManager(PvDesktop pvDesktop) {
++		this.pvDesktop = pvDesktop;
++		availableResources = new ArrayList<Resource>();
++		installedResources = new ArrayList<Resource>();
++		repositories = new ArrayList<OnlineRepository>();
++	}
++	
++	public void loadRepositories() {
++		try {
++			// local repository 
++			// TODO: read repository URL from properties file
++			// this is although always the same and can not be changed!
++			File file = new File(GlobalPreference.getPluginDir() + "/repository.xml");
++			if(!file.exists()) {
++				try {
++					file.createNewFile();
++					updateLocalRepository(pvDesktop.getContext());
++				} catch (IOException e) {
++					// TODO Auto-generated catch block
++					e.printStackTrace();
++				}
++			}
++			LocalRepository localRep = new LocalRepository(new URL("file://" + file.getAbsolutePath()), pvDesktop);
++			localRep.initialize();
++			setLocalRepository(localRep);
++			
++			// loads online repositories
++			// TODO: read repository URL from properties file!
++			OnlineRepository rep = new OnlineRepository(new URL("http://www.bigcat.unimaas.nl/~martina/plugins/repository.xml"), pvDesktop);
++			rep.initialize();
++			addRepository(rep);
++
++			// all local resources are installed
++			installedResources.addAll(localRep.getResources());
++			// get all available resources that are not yet installed
++			updateResourcesList();
++			
++		} catch (MalformedURLException e) {
++			// TODO Auto-generated catch block
++			e.printStackTrace();
++		}
++	}
++	
++	/**
++	 * gets all plug-ins available in the different
++	 * repositories except those which are already installed 
++	 * locally
++	 * TODO: what happens with same resource but different version??
++	 * = update and not new resource!
++	 */
++	public void updateResourcesList() {
++		availableResources.clear();
++		installedResources.clear();
++		
++		for(Resource resource : localRepository.getResources()) {
++			installedResources.add(resource);
++		}
++		
++		for(OnlineRepository repo : getRepositories()) {
++			for(Resource resource : repo.getResources()) {
++				if(!installedResources.contains(resource)) {
++					if(!availableResources.contains(resource)) {
++						availableResources.add(resource);
++					}
++				}
++			}
++		}
++	}
++	
++	public void addRepository(OnlineRepository repository) {
++		if(repository != null && !repositories.contains(repository)) {
++			repositories.add(repository);
++		}
++	}
++	
++	public OnlineRepository getRepository(Resource resource) {
++		for(OnlineRepository repo : repositories) {
++			if(repo.getResources().contains(resource)) {
++				return repo;
++			}
++		}
++		return null;
++	}
++	
++	public void updateLocalRepository(BundleContext context) {
++		try {
++			File file = GlobalPreference.getPluginDir();
++			int i = 0;
++			for(File f : file.listFiles()) {
++				if(f.getName().endsWith(".jar")) i++;
++			}
++			System.out.println("update local repository " + i);
++			String command = "java -jar " + GlobalPreference.getApplicationDir() + "/bindex.jar -n LocalPathVisioPlugins -r " + GlobalPreference.getPluginDir() +"/repository.xml " + GlobalPreference.getPluginDir() +"/";
++			Process process = Runtime.getRuntime ().exec(command);
++			process.waitFor();
++		} catch (IOException e1) {
++			// TODO Auto-generated catch block
++			e1.printStackTrace();
++		} catch (InterruptedException e) {
++			// TODO Auto-generated catch block
++			e.printStackTrace();
++		}
++		
++		try {
++			LocalRepository localRep = new LocalRepository(new URL("file://" + GlobalPreference.getPluginDir() + "/repository.xml"), pvDesktop);
++			setLocalRepository(localRep);
++		} catch (MalformedURLException e) {
++			// TODO Auto-generated catch block
++			e.printStackTrace();
++		}
++		
++	}
++	
++	public LocalRepository getLocalRepository() {
++		return localRepository;
++	}
++	public void setLocalRepository(LocalRepository localRepository) {
++		this.localRepository = localRepository;
++	}
++	public List<OnlineRepository> getRepositories() {
++		return repositories;
++	}
++	public void setRepositories(List<OnlineRepository> repositories) {
++		this.repositories = repositories;
++	}
++
++	public List<Resource> getAvailableResources() {
++		return availableResources;
++	}
++
++	public void setAvailableResources(List<Resource> availableResources) {
++		this.availableResources = availableResources;
++	}
++
++	public List<Resource> getInstalledResources() {
++		return installedResources;
++	}
++
++	public void setInstalledResources(List<Resource> installedResources) {
++		this.installedResources = installedResources;
++	}
++}
+Index: modules/org.pathvisio.desktop/src/org/pathvisio/desktop/plugin/PluginManager.java
+===================================================================
+--- modules/org.pathvisio.desktop/src/org/pathvisio/desktop/plugin/PluginManager.java	(revision 3596)
++++ modules/org.pathvisio.desktop/src/org/pathvisio/desktop/plugin/PluginManager.java	(working copy)
+@@ -29,7 +29,54 @@
+  */
+ public class PluginManager {
+ 
+-	final PvDesktop standaloneEngine;
++	private PvDesktop pvDesktop;
++	private List<PluginInfo> plugins;
++	private RepositoryManager repositoryManager;
++	private List<Plugin> startedPlugins;
++	
++	
++	
++	/**
++	 * Create a plugin manager that loads plugins from the given locations
++	 */
++	public PluginManager(PvDesktop pvDesktop) {
++		this.pvDesktop = pvDesktop;
++		startedPlugins = new ArrayList<Plugin>();
++		plugins = new ArrayList<PluginInfo>();
++		repositoryManager = new RepositoryManager(pvDesktop);
++		repositoryManager.loadRepositories();
++		
++		startPlugins();
++	}
++	
++	/**
++	 * 
++	 */
++	public void startPlugins() {
++		try {
++			ServiceReference[] refs = pvDesktop.getContext().getServiceReferences(Plugin.class.getName(), null);
++			if(refs != null) {
++				for(int i = 0; i < refs.length; i++) {
++					Plugin plugin = (Plugin) pvDesktop.getContext().getService(refs[i]);
++					if(!startedPlugins.contains(plugin)) {
++						PluginInfo pi = new PluginInfo();
++						pi.plugin = plugin.getClass();
++						pi.param = "";
++						pi.jar = refs[i].getBundle().getLocation();
++						try {
++							plugin.init(pvDesktop);
++							startedPlugins.add(plugin);
++						} catch (Exception ex) {
++							pi.error = ex;
++						}
++						plugins.add(pi);	
++					}
++				}
++			}
++		} catch (InvalidSyntaxException e) {
++			Logger.log.error("Couldn't load plugins.");
++		}
++	}
+ 
+ 	/**
+ 	 * Info about a plugin (active or non-active).
+@@ -52,32 +99,7 @@
+ 		return info;
+ 	}
+ 
+-	/**
+-	 * Create a plugin manager that loads plugins from the given locations
+-	 */
+-	public PluginManager(PvDesktop standaloneEngine) {
+-		this.standaloneEngine = standaloneEngine;
+-		
+-		// plugin manager gets all registered plugins and starts them
+-		try {
+-			ServiceReference[] refs = standaloneEngine.getContext().getServiceReferences(Plugin.class.getName(), null);
+-			if(refs != null) {
+-				for(int i = 0; i < refs.length; i++) {
+-					Plugin plugin = (Plugin) standaloneEngine.getContext().getService(refs[i]);
+-					PluginInfo pi = new PluginInfo();
+-					pi.plugin = plugin.getClass();
+-					pi.param = "";
+-					pi.jar = refs[i].getBundle().getLocation();
+-					try {
+-						plugin.init(standaloneEngine);
+-					} catch (Exception ex) {
+-						pi.error = ex;
+-					}
+-					info.add(pi);					
+-				}
+-			}
+-		} catch (InvalidSyntaxException e) {
+-			Logger.log.error("Couldn't load plugins.");
+-		}	
++	public RepositoryManager getRepositoryManager() {
++		return repositoryManager;
+ 	}
+ }
+Index: modules/org.pathvisio.desktop/src/org/pathvisio/desktop/PvDesktop.java
+===================================================================
+--- modules/org.pathvisio.desktop/src/org/pathvisio/desktop/PvDesktop.java	(revision 3596)
++++ modules/org.pathvisio.desktop/src/org/pathvisio/desktop/PvDesktop.java	(working copy)
+@@ -17,10 +17,14 @@
+ 
+ package org.pathvisio.desktop;
+ 
++import java.util.HashMap;
++import java.util.Map;
++
+ import javax.swing.Action;
+ import javax.swing.JFrame;
+ import javax.swing.JMenu;
+ import javax.swing.JMenuBar;
++import javax.swing.JMenuItem;
+ import javax.swing.JOptionPane;
+ import javax.swing.JTabbedPane;
+ 
+@@ -42,6 +46,7 @@
+ import org.pathvisio.desktop.gex.CachedData;
+ import org.pathvisio.desktop.gex.GexManager;
+ import org.pathvisio.desktop.plugin.PluginManager;
++import org.pathvisio.desktop.plugin.RepositoryManager;
+ import org.pathvisio.desktop.util.StandaloneCompat;
+ import org.pathvisio.desktop.visualization.Visualization;
+ import org.pathvisio.desktop.visualization.VisualizationEvent;
+@@ -273,12 +278,33 @@
+ 			JMenu menuAt = menuBar.getMenu(i);
+ 			if (menuAt.getText().equals (submenu))
+ 			{
+-				menuAt.add(a);
++				JMenuItem item = menuAt.add(a);
++				registeredActions.put(a, item);
+ 				break;
+ 			}
+ 		}
+ 	}
+-
++	
++	private Map<Action, JMenuItem> registeredActions = new HashMap<Action, JMenuItem>();
++	
++	public void unregisterMenuAction (String submenu, Action a)
++	{
++		JMenuBar menuBar = swingEngine.getApplicationPanel().getMenuBar();
++		if(menuBar != null) {
++			for (int i = 0; i < menuBar.getMenuCount(); ++i)
++			{
++				JMenu menuAt = menuBar.getMenu(i);
++				if (menuAt.getText().equals (submenu))
++				{
++					System.out.println("unregister: " + registeredActions.get(a));
++					menuAt.remove(registeredActions.get(a));
++					registeredActions.remove(a);
++					break;
++				}
++			}
++		}
++	}
++	
+ 	/**
+ 	 * Returns the JTabbedPane that corresponds to the side-bar
+ 	 * shortcut for
+@@ -364,11 +390,10 @@
+ 		manager = new PluginManager(this);
+ 	}
+ 
+-	public PluginManager getPluginManager()
+-	{
++	public PluginManager getPluginManager() {
+ 		return manager;
+ 	}
+-
++	
+ 	/**
+ 	 * Ask the user to select a gdb. Uses the appropriate swingDbConnector for the
+ 	 * current database type.
+Index: modules/org.pathvisio.desktop/src/org/pathvisio/desktop/GuiMain.java
+===================================================================
+--- modules/org.pathvisio.desktop/src/org/pathvisio/desktop/GuiMain.java	(revision 3596)
++++ modules/org.pathvisio.desktop/src/org/pathvisio/desktop/GuiMain.java	(working copy)
+@@ -220,7 +220,9 @@
+ 		frame.pack();
+ 		PreferenceManager preferences = PreferenceManager.getCurrent();
+ 		frame.setSize(preferences.getInt(GlobalPreference.WIN_W), preferences.getInt(GlobalPreference.WIN_H));
+-		frame.setLocation(preferences.getInt(GlobalPreference.WIN_X), preferences.getInt(GlobalPreference.WIN_Y));
++		int x = preferences.getInt(GlobalPreference.WIN_X);
++		int y = preferences.getInt(GlobalPreference.WIN_Y);
++		if(x >= 0 && y >= 0) frame.setLocation(x, y);
+ 
+ 		frame.addWindowListener(new WindowAdapter()
+ 		{
+Index: modules/org.pathvisio.desktop/src/com/nexes/wizard/cancelIcon.gif
+===================================================================
+--- modules/org.pathvisio.desktop/src/com/nexes/wizard/cancelIcon.gif	(revision 3596)
++++ modules/org.pathvisio.desktop/src/com/nexes/wizard/cancelIcon.gif	(working copy)
+@@ -1,21 +0,0 @@
+-GIF89a  ˜  ~ƒq ´‡~î∑®∑œ≠ª“âì£0m.j.g2o	1l	/h
+-2k
+-.c3n2j-5o-0f8r5l5m6n6l;t9o;p<q<qC}=q?s;m F@t0WAtBu!Ez Cv@q!Dv%JÅ"Dw#Fx#Ex6])MÇ'Iz*K|+L},M}/PÇ.O0QÄ1RÅ0P~5Vá3SÇ4TÇ/Jq;\çBaéLlõIgîQpûRqûMjïTqõZv†dÇ≠`|•cÄ™^y†fÇ™gÅßlÜ´rã±pà≠h†yëµwè≤zíµÄñ∑áùΩâüøì∞å°¿ç¢¡ó™«ï®ƒö≠»ô´∆úÆ…¢≥Ã¶∂Õ©π–ÆΩ”∂ƒÿ¥¬÷≥¡’π∆ŸøÀ‹0j/e	3m
+-3m6m=v5j9n@{>v;o?uByBvDx Ey#H{*Så$Gx%Hy'L})K{-O~3Yç1TÇ'Bh%>`2SÅ5VÑ7Yá6WÑ8XÖ>aëDiúRu£PrûPqùQmî`Å≠dÅ©fÇ©rèµsé≥ôºÅô∫Üúªé§¬¢≥À•∂Œ∞¿’¨∫Õª»⁄Ω €¬Œﬁ∆—‡À’„-.U)N	9F{"Oà6V3VK}.M5W1N":V-Jk8TsF|2S7Y&Yå&Wâ1K7S1F/Je.GaYÑÆKawÇ°ø]o,eîI|¶m{á	Sä&cì$iö(mú/A≠…›et~cô's£Wñæq§tßRõƒr™}Æm±”Ö∏à∫Ö∂:IõÃ„É∏ç¬î«C£Õ9Fq¡·-ñ…#üœM∑ﬁWΩ‚™ﬂ®›û”¢◊†”¨›1∂·-KUN`f<W]"GL"DH&JN3UX)KM+LM/MMFbb.SQ8]W8[S5YPStg:bREqUJvXcÜmRá^kñls¥lq≤kt∂lv∏n|¡py∫oˇˇˇ!˘  ˇ ,       ˇ ˇ	¯O‹5ad.yŸÇ+Y6n#
+-≠ß2aT 2	äí]‘$‹÷…‚¶Lcpπ"•	!<êuìxçßMõ4â!–Ö£«!=fÑË5s†6Me h"#å•-V,!ÚGâ	à-wIåL
+-|±§Öí$&FÑÏhaÇ“20‡/|ˆÜa1Èà¢ZËÅZÄ-+n·∞hY|ÄΩ\ëADÎ }†
+-[¿ ≠⁄*VÆT!ÁÄº[å([ÓwÓ”ÑÕàÉÚ$Jî'N⁄ïn∑J’Í÷j⁄`–‡!î-Géí$itdQ9~˝“πÎ◊œú'	m‡lÇD¢ AÄ ˇÒ·„–†q “∞~·BÜF†Pa®>}˙‹ÂÍ^˙{≠∏ÒF‹ô†¬
+-yº‚B
+-)Ä¿Åkòçz †CäsêÄÇ/ÏAÃ@êÄ	úÕ> ∏ÉuÍúRxt, `Ü
+-§—Ä5(∫”
+-)Í –œ:£»(»xÉ8A0(ŒÉär»èêÏ§r$-5`Û1PPÅ)˛ÕÀt‘aáï ‰3-6Úã@ﬂ¨!ú)Ù–À&p∏G*‘3K :‚•@”h∞¡"àpå∆¿- rÉ Ñ<ë4!©Bå{¿0i-ÑbJ»2"MSäü[⁄êÉ©É8!#ù«ËÉ\ñJH!≈Ä3+Aﬂ4Ûã/~Ë†0œ¯*Q@ ;
+\ No newline at end of file
+Index: modules/org.pathvisio.desktop/src/com/nexes/wizard/nextIcon.gif
+===================================================================
+--- modules/org.pathvisio.desktop/src/com/nexes/wizard/nextIcon.gif	(revision 3596)
++++ modules/org.pathvisio.desktop/src/com/nexes/wizard/nextIcon.gif	(working copy)
+@@ -1,13 +0,0 @@
+-GIF89a  ˜      ´‡,07=tQoûÆº“1o0m.j.i%S0k.g	1l	0j	0i
+-1j3m5p3m2k	'R-4n6o5o8r5l5m8p7o8n9s6l?|9o*R9q>w:p9o<r>t;q<pB|=s?u=q?sBx@tE~@sAtBvBu Cv"G|!Dw$IÅ&KÅ#Ew)MÇ'Iz*K|,NÅ+L},M}.O/P2TÖ0QÄ1RÅ3SÇ9\è4TÇ;]è>aî>_êDhú?^åEdëNnùKiïRqûWtû[wüeÅ©fÇ™fÅ©d~•kÑ´nàÆuèµtå∞wè≥yëµzíµzë¥ñ∏}îµÇô∫áùΩã†øô¨»ô´«ó™≈õÆ…ö≠»ü∞ ¢≥Õ£¥Õ£≥ÀzÜòß∑œ©π–¨ª“´∫—±ø‘¥¬÷≥¡’π∆Ÿ¿Ã›øÀ‹ƒœﬂ;2%L
+-.`4l5j
+- >1GÑA{;o-$BAyDzEz@tEyF{!G{;e!Fy"Gz#Hz$J{#Gy)Rã(OÖ$Gx%I{%Hy(K|)K{21Xç-O~/SÇ4Yç3UÉ2SÅ<dò7Yâ5VÑ6WÑ7YÜ$:W8XÖIlùMq°RqúPnòXy•[|®aÄ´a©fÇ©+7GK^xqå≤âüæå¢¡ã°¿jzêñ´»í¶¬T^l∑≈ÿª»⁄Ω €∆—‡À’‚;|IÜ2YDz Nâ&Té3^ï5XÖ7Zá2=K2Zà5_åIÄL$TÜmêµzü¿
+-Oá)dî≤ ›\è"gò>´ã≥–]îiõ'p†dúx™^†∆´œ„-s®o£"{´xÆ≥ÅµÄ≥Gú≈â≈·ã¡ãΩnº‹yƒ‚ôŒë∆õœî«î«°“5ÆŸ´‡¨‡§ÿ°÷û“B∫‚¨‡ˇˇˇ!˘  ˇ ,       ˇ ˇ	ËØ;l¿
+-¿QSmùΩÅ#ˆGåœû;u⁄¯*„EÀ∂yÊÉGåÿ0=yÏ»IsÜÃ+SN•ôè›∞a|Ù√®ë£XPÇ Ò›û£¬Ú‹°ÛFM.1[™D1ÉÉsÔ·π√ıéù:n“Ë√%VÃ<O 79sÍÃâ#‡W/]ep—í¬Ñ«á(ÍˆÔû4l÷¨·†±≥[≥\5…TÅ¡ DƒgÊÃ.]ª7ΩJ"-(lpb9j_¿Ñ	¶À-[£GÍhu¢0≤]…Rñ+¥d≈rµÍSÓ∆"ΩÄQC⁄+*Tê“Íâ©e åˇ#î≈7tPr¬ûâíQ†0%;Ù«œs éj‡Ë°…í<Ï0!T–«}Ç("â-:h¬…”DÛApÄ˜)r#èË–√Éû ·M7,∞@T0ö!# √H#êP¢°Ñ¢N;D0Åå@H!%,Ú"$ëXÚC'@‘XÑ(˚¸cçt¿	*§‡BèLR…&HJHîé@Úà Ç	(¥ É5x¯ ^ÇôƒœË3–9* GCõ¸˝‡	çr.Å
+-3ÙDTŒû˚i‚'çDQä†©®‚NHˇ†3âÉ]Ü‚(§¨@S•Ò„Õü°4˙(*©4céù†ƒè:⁄\S
+-)◊|„´ ;
+\ No newline at end of file
+Index: modules/org.pathvisio.desktop/src/com/nexes/wizard/wizard.properties
+===================================================================
+--- modules/org.pathvisio.desktop/src/com/nexes/wizard/wizard.properties	(revision 3596)
++++ modules/org.pathvisio.desktop/src/com/nexes/wizard/wizard.properties	(working copy)
+@@ -1,13 +0,0 @@
+-#
+-# wizard.properties
+-#
+-
+-backButtonText=Back
+-nextButtonText=Next
+-cancelButtonText=Cancel
+-finishButtonText=Finish
+-
+-backButtonIcon=backIcon.gif
+-nextButtonIcon=nextIcon.gif
+-cancelButtonIcon=cancelIcon.gif
+-finishButtonIcon=finishIcon.gif
+Index: modules/org.pathvisio.desktop/src/com/nexes/wizard/backIcon.gif
+===================================================================
+--- modules/org.pathvisio.desktop/src/com/nexes/wizard/backIcon.gif	(revision 3596)
++++ modules/org.pathvisio.desktop/src/com/nexes/wizard/backIcon.gif	(working copy)
+@@ -1,16 +0,0 @@
+-GIF89a  ˜      ´‡~î∑®∑œ≠ª“!N.j0l.g1n	1l	/i	/g$O
+-2k#K-7s3m2k1i5o8r5l6p5m6n9q7l:t9q>w7k:p9o,U;q=t<q=r+P<qC}=q?u?s@s F@tBuAt!Ez Cv!Dv%JÅ"Dw#Fx#Ex%I}5Z)MÇ'Iz"*K|+L},M}/PÇ.O/P5Yç0QÄ1RÅ5Vá3SÇ9\è4TÇ:[ã<^è?`ë<[äBaé"1GIgîNlöPoùQpûRqûMjïTqõ\x†`|•	dÄ™fÇ™fÅ©gÅßlÜ´rã±pà≠yëµwè≤zíµÄñ∑áùæâüøç¢¡ë¶≈ñ™«ñ©∆ï®ƒô¨»õÆ…ö≠»ô´∆úÆ»ü±À§µŒ¢≥Ãß∑œ¶∂Õ©π–ÆΩ”∂ƒÿ¥¬÷≥¡’π∆ŸøÀ‹.3p	5s	3m
+-3m	+X5o<x:t A6m5j=x<t9nAz;o?u
+-1ByBwEz3X Ey!G{#H{'B$Gx%I{%Hy'L}'J{)K{-O~1TÇ2SÅ5VÑ6WÑ7YÜ=bì8XÖPrûPqùCWsdÅ©fÇ©:J_rèµ=L`sé≥f}ùôºÄöºÅô∫Üúªã°¿é§¬¢≥À•∂Œ´ª—∞ø‘ª»⁄Ω €¬Œﬁ«“·∆—‡À’„9w
+-;z1
+-:v>~%J!A?z>t)M@y-R8F{/WmáK} F|&XãYÑÆOàÇ°ø,eîI|¶&cì_ñ$iö(mú≠…›cò's£Wñædõq§tßRõƒr™}Æm±”Ö∏à∫Ö∂õÃ„Ö∫ç¬
+-Åµî«C£Õq¡·-ñ…#üœM∑ﬁWΩ‚™ﬂ®›û”¢◊†”¨›1∂·ˇˇˇ!˘  ˇ ,       ˇ ˇ	¯œﬂºo|tŸÅÉÕ\=|#
+-Ù◊ÿØ>y‹bCkåmÒ$ºòØ^ªˆàÉ¶L,VúîÀ'qﬁØ_ΩzÒ“CÄGèWûYqçÊ@{º˙Ù·≈G\pj	¯Ç% åÿOóûØztÂöÛ∆÷,0Y§,…°É	Ó¶´3‡Œù∏‰¥1˚j*(=DX !5|˝÷¥y„∆M5ij≈jï
+-
+-ÄÀ'⁄¬ù<3gj°©u∆å¨h¨.´–@ÇŒ#¿â#Ü1∞\iY}ŸœBàÖ(¡¬ôµ.´∏pQ≈¿3e¡à™¿»
+-/`ú™RÖ )´°]ˇ+&LX°EãF®hÉÜçRMö0IB§˘0c»ñyx¥‚≈7lRÕ5‘‡B
+-2MsÕú 	4»C'‹pP!	 ƒrLsî‡ê	û¯PÕ9pÄÇÅ!ä,”3ê®¶√Ñ> ÒI9˙‚@PpÅãx‡A$ëLb	&=Ëê„'CAœ?„XÄAt0	+H2I%óh“…ìCJ7Ìì# å`-¿0ÉÑûËXf(Jà2•@Ôîp{3àH‚üQû¢å¬ND j√àczhû£åÇéHÔHCßùF ëË(§¨#Rö‰pí£°àébJ8¸åJ–>Ít≥-(Jd„-;≠J ;
+\ No newline at end of file
+Index: modules/org.pathvisio.desktop/src/com/nexes/wizard/finishIcon.gif
+===================================================================
+--- modules/org.pathvisio.desktop/src/com/nexes/wizard/finishIcon.gif	(revision 3596)
++++ modules/org.pathvisio.desktop/src/com/nexes/wizard/finishIcon.gif	(working copy)
+@@ -1,14 +0,0 @@
+-GIF89a  ˜  ~ƒq ´‡~î∑®∑œ≠ª“.j0l#N.g1n	1l
+-5r	/h	/g
+-2k3n2k-6r1i-4n
+-'Q5o5l6p5m8q6n6l:t9q@|=v9o;q=t=r<qC}=q?u?s@s F@tBuAt!Ez Cv!Dv"Dw#Fx#Ex&KÅ'Iz*K|+L},M}.O/P0QÄ1RÅ5Vá3SÇ9\è4TÇ<^è?`ë<[äBaéLlõIgîPoùQpûRqûMjïTqõZv†dÇ≠`|•cÄ™^y†fÇ™fÅ©gÅßlÜ´rã±pà≠vêµwè≤zíµÄñ∑áùΩâüøç¢¡ë¶≈ñ™«ï®ƒô¨»õÆ…ö≠»ô´∆úÆ»ü±À§µŒ¢≥Ãß∑œ¶∂Õ©π–ÆΩ”∂ƒÿ¥¬÷≥¡’π∆ŸøÀ‹3p	3m
+-3m9s5j9n6j <;p;o@uAx<lEzBwDy<jF{ Ey!G{#H{$Gx%I{%Hy'L}'@'J{)K{*C2Zê-O~3Yç1TÇ2SÅ5VÑ6WÑ7YÜ=bì8XÖ>`è<]ã$7PRu£PrûPqùZ|©dÅ©fÇ©mã≥rèµsé≥ôºÅô∫Üúªã°¿é§¬¢≥À•∂Œ´ª—∞ø‘ª»⁄Ω €¬Œﬁ∆—‡À’„=t?s9`ë=bë6FYwî∏G{K}.K0No]ÉÆF|0S&Xã2IKw§Pf|IWe--L,C0I6Q4LÇ°ø+A,eî	Sä&cì$iö(mú≠…›cô's£Wñæq§tßRõƒr™}Æm±”Ö∏à∫Ö∂õÃ„É∏ç¬î«C£Õq¡·-ñ…#üœM∑ﬁWΩ‚!?J'GS™ﬂ®›û”¢◊†”¨›1∂·=^^*ROJgd7bSAnSDqUbùej©it∂mr¥lr≥l|¡pzæo{øpˇˇˇ!˘  ˇ ,       ˇ ˇ	¯ﬁ∏hpZ©!£ÏZ9u#
+-ÑÁMV¨8m®s
+-Àa·$<'À",WoîÈ¢≈
+-%C¨≠ì8.V,X∞^π!ÄÜ£«%Dv¨h6s†πWq‚ºÇ„ÜÕ*2®Pab§á§-|◊ çW7≠Xùì T'J*-⁄Ä†ÅÑoµ•∞fÕÄUf¬î%ıƒì&Gˆ0Ä`«ó∫w_¬å#&Ã/®Jçj¬)S∞}ıﬁ ‚õ∏-\PuA≈Öÿ0\¢zq≤ïlÄz,p!çñ,∏≥\π5oÿ'aµíÈö¬$P‰Í%%Tî(†û‹Úè◊#d¯àÁÀÉgOÚ,:%ˇIÇ‰Hë"õ¸ÒKáÏûˆ<wBòH—FåKBÑ˘)“Æ~ƒπ@>ÀË¡«	+ºÉâ C√É*î‡¡/Úßù1¥Ù00X#“pPG	 «≈–s!B»á‘–à-¿`SÄ(@«‘±=˘†„«É∏##6‡ â5ÏÃ·¿TpA≥|påêÉÇ"H*©√‰¸#çhêA!àp ÇbóIB¢ì<#P;≥‹°G#†ê/xÿàótAIòÅBrÙΩ £å7@í√ìZI7}”hG⁄ )•ñVíçH‡Ë"(°>PRI%ñp#“ù’(í‰§ï™ä…4ÓºJP;€<„å$@0M7πJ ;
+\ No newline at end of file
+Index: modules/org.pathvisio.desktop/package.bnd
+===================================================================
+--- modules/org.pathvisio.desktop/package.bnd	(revision 3596)
++++ modules/org.pathvisio.desktop/package.bnd	(working copy)
+@@ -2,5 +2,5 @@
+ Bundle-Version: 2.0.11
+ Bundle-Name: org.pathvisio.desktop
+ Bundle-SymbolicName: org.pathvisio.desktop
+-Require-Bundle: org.pathvisio.core;bundle-version="2.0.11",org.pathvisio.gui;bundle-version="2.0.11",org.pathvisio.batik.anim;bundle-version="1.7.0",org.pathvisio.batik.awt.util;bundle-version="1.7.0",org.pathvisio.batik.bridge;bundle-version="1.7.0",org.pathvisio.batik.codec;bundle-version="1.7.0",org.pathvisio.batik.css;bundle-version="1.7.0",org.pathvisio.batik.dom;bundle-version="1.7.0",org.pathvisio.batik.ext;bundle-version="1.7.0",org.pathvisio.batik.extension;bundle-version="1.7.0",org.pathvisio.batik.gvt;bundle-version="1.7.0",org.pathvisio.batik.parser;bundle-version="1.7.0",org.pathvisio.batik.script;bundle-version="1.7.0",org.pathvisio.batik.svg.dom;bundle-version="1.7.0",org.pathvisio.batik.svggen;bundle-version="1.7.0",org.pathvisio.batik.transcoder;bundle-version="1.7.0",org.pathvisio.batik.util;bundle-version="1.7.0",org.pathvisio.batik.xml;bundle-version="1.7.0",org.pathvisio.pdftranscoder;bundle-version="1.7.0",org.pathvisio.xml.apis;bundle-version="1.7.0",org.pathvisio.xml.apis.ext;bundle-version="1.7.0",com.springsource.org.jdom;bundle-version="1.1.0",org.bridgedb;bundle-version="1.1.0",org.bridgedb.bio;bundle-version="1.1.0",org.bridgedb.gui;bundle-version="1.1.0",org.bridgedb.rdb;bundle-version="1.1.0",org.bridgedb.rdb.construct;bundle-version="1.1.0",org.pathvisio.jgoodies.forms;bundle-version="1.2.0",org.pathvisio.browserlauncher;bundle-version="1.0.0",org.apache.commons.math;bundle-version="2.0.0",org.pathvisio.swingworker;bundle-version="1.1.0"
++Require-Bundle: org.pathvisio.core;bundle-version="2.0.11",org.pathvisio.gui;bundle-version="2.0.11",org.pathvisio.pdftranscoder;bundle-version="1.7.0",com.springsource.org.jdom;bundle-version="1.1.0",org.bridgedb;bundle-version="1.1.0",org.bridgedb.bio;bundle-version="1.1.0",org.bridgedb.gui;bundle-version="1.1.0",org.bridgedb.rdb;bundle-version="1.1.0",org.bridgedb.rdb.construct;bundle-version="1.1.0",org.pathvisio.jgoodies.forms;bundle-version="1.2.0",org.pathvisio.browserlauncher;bundle-version="1.0.0",org.apache.commons.math;bundle-version="2.0.0",org.pathvisio.swingworker;bundle-version="1.1.0",javax.xml;bundle-version="1.3.4",org.apache.batik.bridge;bundle-version="1.7.0",org.apache.batik.css;bundle-version="1.7.0",org.apache.batik.dom.svg;bundle-version="1.7.0",org.apache.batik.dom;bundle-version="1.7.0",org.apache.batik.ext.awt;bundle-version="1.7.0",org.apache.batik.extension;bundle-version="1.7.0",org.apache.batik.parser;bundle-version="1.7.0",org.apache.batik.svggen;bundle-version="1.7.0",org.apache.batik.transcoder;bundle-version="1.7.0",org.apache.batik.util.gui;bundle-version="1.7.0",org.apache.batik.util;bundle-version="1.7.0",org.apache.batik.xml;bundle-version="1.7.0",org.apache.xalan;bundle-version="2.7.1",org.apache.xerces;bundle-version="2.9.0",org.apache.xml.resolver;bundle-version="1.2.0",org.apache.xml.serializer;bundle-version="2.7.1",org.w3c.css.sac;bundle-version="1.3.1",org.w3c.dom.events;bundle-version="3.0.0",org.w3c.dom.smil;bundle-version="1.0.1",org.w3c.dom.svg;bundle-version="1.1.0"
+ Bundle-Activator: org.pathvisio.desktop.Activator
+\ No newline at end of file
+Index: modules/org.pathvisio.desktop/build.xml
+===================================================================
+--- modules/org.pathvisio.desktop/build.xml	(revision 3596)
++++ modules/org.pathvisio.desktop/build.xml	(working copy)
+@@ -7,10 +7,13 @@
+ 
+ 	<path id="project.class.path">
+ 	  <fileset dir="../../lib">
+-		<include name="org.pathvisio.batik.*.jar"/>
++	  	<include name="org.apache.batik.*.jar"/>
++		<include name="org.apache.xml*.jar"/>
++		<include name="org.apache.xalan*.jar"/>
++		<include name="org.apache.xerces*.jar"/>
++		<include name="org.w3c.*.jar"/>
++		<include name="javax.xml*.jar"/>
+ 		<include name="org.pathvisio.pdftranscoder.jar"/>
+-		<include name="org.pathvisio.xml.apis.jar"/>
+-		<include name="org.pathvisio.xml.apis.ext.jar"/>
+ 		<include name="com.springsource.org.jdom-1.1.0.jar"/>
+ 		<include name="org.bridgedb.jar"/>
+ 		<include name="org.bridgedb.bio.jar"/>
+@@ -22,6 +25,7 @@
+ 		<include name="commons-math-2.0.jar"/>
+ 		<include name="org.pathvisio.swingworker.jar"/>
+ 		<include name="org.eclipse.osgi.jar"/>
++		<include name="org.apache.felix.bundlerepository-1.6.6.jar"/>
+ 	  </fileset>
+ 	  <fileset dir="${bundle.dest}">
+ 		<include name="org.pathvisio.core.jar"/>
+Index: modules/org.pathvisio.statistics/META-INF/MANIFEST.MF
+===================================================================
+--- modules/org.pathvisio.statistics/META-INF/MANIFEST.MF	(revision 3596)
++++ modules/org.pathvisio.statistics/META-INF/MANIFEST.MF	(working copy)
+@@ -4,13 +4,14 @@
+ Bundle-SymbolicName: org.pathvisio.statistics
+ Bundle-Version: 2.0.11
+ Bundle-Activator: org.pathvisio.statistics.Activator
++Export-Package: org.pathvisio.statistics
+ Require-Bundle: org.pathvisio.core;bundle-version="2.0.11",
+  org.pathvisio.desktop;bundle-version="2.0.11",
+  org.pathvisio.gui;bundle-version="2.0.11",
+  org.pathvisio.jgoodies.forms;bundle-version="1.2.0",
+  org.pathvisio.swingworker;bundle-version="1.1.0",
+  org.bridgedb;bundle-version="1.1.0",
+- org.bridgedb.gui;bundle-version="1.1.0"
++ org.bridgedb.gui;bundle-version="1.1.0",
++ org.bridgedb.bio;bundle-version="1.1.0"
+ Bundle-RequiredExecutionEnvironment: JavaSE-1.6
+ Import-Package: org.osgi.framework;version="1.5.0"
+-Export-Package: org.pathvisio.statistics
+Index: modules/org.wikipathways.client/META-INF/MANIFEST.MF
+===================================================================
+--- modules/org.wikipathways.client/META-INF/MANIFEST.MF	(revision 3596)
++++ modules/org.wikipathways.client/META-INF/MANIFEST.MF	(working copy)
+@@ -5,11 +5,13 @@
+ Bundle-Version: 1.0.0.qualifier
+ Export-Package: org.pathvisio.wikipathways.webservice,
+  org.wikipathways.bots,
+- org.wikipathways.client
++ org.wikipathways.client,
++ javax.xml.rpc
+ Require-Bundle: org.pathvisio.core;bundle-version="2.0.11",
+  org.pathvisio.gui;bundle-version="2.0.11",
+  org.bridgedb;bundle-version="1.1.0",
+  org.bridgedb.bio;bundle-version="1.1.0",
+  org.bridgedb.rdb;bundle-version="1.1.0",
+  org.bridgedb.rdb.construct;bundle-version="1.1.0",
+- com.springsource.org.jdom;bundle-version="1.1.0"
++ com.springsource.org.jdom;bundle-version="1.1.0",
++ org.wikipathways.applet;bundle-version="1.0.0"
+Index: modules/org.wikipathways.client/package.bnd
+===================================================================
+--- modules/org.wikipathways.client/package.bnd	(revision 3596)
++++ modules/org.wikipathways.client/package.bnd	(working copy)
+@@ -0,0 +1,4 @@
++Export-Package: *
++Bundle-Version: 2.0.11
++Bundle-Name: org.wikipathways.client
++Bundle-SymbolicName: org.wikipathways.client
+Index: modules/org.pathvisio.launcher/src/org/pathvisio/launcher/PathVisioMain.java
+===================================================================
+--- modules/org.pathvisio.launcher/src/org/pathvisio/launcher/PathVisioMain.java	(revision 3596)
++++ modules/org.pathvisio.launcher/src/org/pathvisio/launcher/PathVisioMain.java	(working copy)
+@@ -35,35 +35,38 @@
+ 		"modules/org.pathvisio.gui.jar",
+ 		"modules/org.pathvisio.desktop.jar",
+ 		"modules/org.pathvisio.visualization.jar",
+-		"modules/org.pathvisio.gex.jar",
++		"modules/org.pathvisio.gexplugin.jar",
+ 		"modules/org.pathvisio.statistics.jar"
+ 	};
+ 	
+ 	private static final String[] libs = {
++		"lib/org.apache.felix.bundlerepository-1.6.6.jar",
+ 		"lib/com.springsource.org.jdom-1.1.0.jar",
+-		"lib/org.pathvisio.xml.apis.jar",
+-		"lib/org.pathvisio.xml.apis.ext.jar",
+ 		"lib/org.pathvisio.pdftranscoder.jar",
+ 		"lib/commons-math-2.0.jar",
+-		"lib/org.pathvisio.xerces.jar",
++		"lib/org.apache.xalan_2.7.1.v200905122109.jar",
++		"lib/org.apache.xerces_2.9.0.v200909240008.jar",
++		"lib/org.apache.xml.resolver_1.2.0.v200902170519.jar",
++		"lib/org.apache.xml.serializer_2.7.1.v200902170519.jar",
++		"lib/org.w3c.css.sac_1.3.1.v200903091627.jar",
++		"lib/org.w3c.dom.events_3.0.0.draft20060413_v200905140418.jar",
++		"lib/org.w3c.dom.smil_1.0.1.v200903091627.jar",
++		"lib/org.w3c.dom.svg_1.1.0.v200806040011.jar",
++		"lib/javax.xml_1.3.4.v200902170245.jar",
+ 		"lib/derby.jar",
+ 		"lib/org.pathvisio.jgoodies.forms.jar",
+-		"lib/org.pathvisio.batik.gvt.jar",
+-		"lib/org.pathvisio.batik.util.jar",
+-		"lib/org.pathvisio.batik.ext.jar",
+-		"lib/org.pathvisio.batik.anim.jar",
+-		"lib/org.pathvisio.batik.awt.util.jar",
+-		"lib/org.pathvisio.batik.bridge.jar",
+-		"lib/org.pathvisio.batik.codec.jar",
+-		"lib/org.pathvisio.batik.css.jar",
+-		"lib/org.pathvisio.batik.dom.jar",
+-		"lib/org.pathvisio.batik.extension.jar",
+-		"lib/org.pathvisio.batik.parser.jar",
+-		"lib/org.pathvisio.batik.script.jar",
+-		"lib/org.pathvisio.batik.svg.dom.jar",
+-		"lib/org.pathvisio.batik.svggen.jar",
+-		"lib/org.pathvisio.batik.transcoder.jar",
+-		"lib/org.pathvisio.batik.xml.jar",
++		"lib/org.apache.batik.util_1.7.0.v200903091627.jar",
++		"lib/org.apache.batik.ext.awt_1.7.0.v200903091627.jar",	
++		"lib/org.apache.batik.xml_1.7.0.v200903091627.jar",
++		"lib/org.apache.batik.css_1.7.0.v200903091627.jar",		
++		"lib/org.apache.batik.dom.svg_1.7.0.v200903091627.jar",		
++		"lib/org.apache.batik.dom_1.7.0.v200903091627.jar",		
++		"lib/org.apache.batik.bridge_1.7.0.v200903091627.jar",
++		"lib/org.apache.batik.extension_1.7.0.v200903091627.jar",
++		"lib/org.apache.batik.parser_1.7.0.v200903091627.jar",		
++		"lib/org.apache.batik.svggen_1.7.0.v200903091627.jar",			
++		"lib/org.apache.batik.transcoder_1.7.0.v200903091627.jar",
++		"lib/org.apache.batik.util.gui_1.7.0.v200903091627.jar",	
+ 		"lib/org.bridgedb.jar",
+ 		"lib/org.bridgedb.bio.jar",
+ 		"lib/org.bridgedb.rdb.jar",
+@@ -72,7 +75,6 @@
+ 		"lib/org.bridgedb.rdb.construct.jar",
+ 		"lib/org.pathvisio.browserlauncher.jar",
+ 		"lib/org.pathvisio.swingworker.jar",
+-		
+ 	};
+ 	
+ 	private Properties launchProperties = new Properties();
+Index: modules/org.pathvisio.launcher/build.xml
+===================================================================
+--- modules/org.pathvisio.launcher/build.xml	(revision 3596)
++++ modules/org.pathvisio.launcher/build.xml	(working copy)
+@@ -14,4 +14,23 @@
+ 	  </fileset>
+ 	</path>
+ 
++	<!-- override jar target, because we want to add Main-Class and Class-Path attributes -->
++	<target name="jar" depends="compile"> 
++		<echo>Creating JAR: ${jar.name}</echo>
++		<taskdef resource="aQute/bnd/ant/taskdef.properties" classpath="../../lib-build/biz.aQute.bnd.jar"/> 
++		<bnd classpath="build" 
++			output="${bundle.dest}/${jar.name}" 
++			eclipse="false" failok="false" exceptions="true" 
++			files="package.bnd"/> 
++		<manifestclasspath property="jar.class.path" jarfile="${bundle.dest}/${jar.name}">
++			<classpath refid="project.class.path"/>
++		</manifestclasspath>
++		<jar file="${bundle.dest}/${jar.name}" update="true">
++			<manifest>
++				<attribute name="Main-Class" value="org.pathvisio.launcher.PathVisioMain"/>
++				<attribute name="Class-Path" value="${jar.class.path}"/>
++			</manifest>
++		</jar>
++	</target>
++
+ </project>
+Index: modules/org.pathvisio.visualization/META-INF/MANIFEST.MF
+===================================================================
+--- modules/org.pathvisio.visualization/META-INF/MANIFEST.MF	(revision 3596)
++++ modules/org.pathvisio.visualization/META-INF/MANIFEST.MF	(working copy)
+@@ -4,17 +4,10 @@
+ Bundle-SymbolicName: org.pathvisio.visualization
+ Bundle-Version: 2.0.11
+ Bundle-Activator: org.pathvisio.visualization.Activator
+-Bundle-ActivationPolicy: lazy
++Export-Package: org.pathvisio.visualization,
++ org.pathvisio.visualization.gui,
++ org.pathvisio.visualization.plugins
++Require-Bundle: org.pathvisio.core;bundle-version="2.0.11",org.pathvisio.desktop;bundle-version="2.0.11",org.pathvisio.gui;bundle-version="2.0.11",org.pathvisio.jgoodies.forms;bundle-version="1.2.0",com.springsource.org.jdom;bundle-version="1.1.0",org.bridgedb;bundle-version="1.1.0",org.bridgedb.bio;bundle-version="1.1.0",org.bridgedb.gui;bundle-version="1.1.0",org.bridgedb.rdb;bundle-version="1.1.0"
+ Bundle-RequiredExecutionEnvironment: JavaSE-1.6
+ Import-Package: org.osgi.framework;version="1.3.0"
+-Require-Bundle: org.pathvisio.core;bundle-version="2.0.11",
+- org.pathvisio.desktop;bundle-version="2.0.11",
+- org.pathvisio.gui;bundle-version="2.0.11",
+- org.pathvisio.jgoodies.forms;bundle-version="1.2.0",
+- com.springsource.org.jdom;bundle-version="1.1.0",
+- org.bridgedb;bundle-version="1.1.0",
+- org.bridgedb.bio;bundle-version="1.1.0",
+- org.bridgedb.gui;bundle-version="1.1.0",
+- org.bridgedb.rdb;bundle-version="1.1.0"
+-Export-Package: org.pathvisio.visualization.gui,
+- org.pathvisio.visualization.plugins
++Bundle-ActivationPolicy: lazy
+Index: modules/org.pathvisio.gex/META-INF/MANIFEST.MF
+===================================================================
+--- modules/org.pathvisio.gex/META-INF/MANIFEST.MF	(revision 3596)
++++ modules/org.pathvisio.gex/META-INF/MANIFEST.MF	(working copy)
+@@ -4,17 +4,8 @@
+ Bundle-SymbolicName: org.pathvisio.gex
+ Bundle-Version: 2.0.11
+ Bundle-Activator: org.pathvisio.gexplugin.Activator
+-Bundle-ActivationPolicy: lazy
++Require-Bundle: org.pathvisio.core;bundle-version="2.0.11",org.pathvisio.gui;bundle-version="2.0.11",org.pathvisio.desktop;bundle-version="2.0.11",org.pathvisio.jgoodies.forms;bundle-version="1.2.0",org.pathvisio.swingworker;bundle-version="1.1.0",org.pathvisio.visualization;bundle-version="2.0.11",org.bridgedb;bundle-version="1.1.0",org.bridgedb.bio;bundle-version="1.1.0",org.bridgedb.rdb;bundle-version="1.1.0",org.bridgedb.rdb.construct;bundle-version="1.1.0",org.bridgedb.gui;bundle-version="1.1.0"
+ Bundle-RequiredExecutionEnvironment: JavaSE-1.6
+ Import-Package: org.osgi.framework;version="1.3.0"
+-Require-Bundle: org.pathvisio.core;bundle-version="2.0.11",
+- org.pathvisio.gui;bundle-version="2.0.11",
+- org.pathvisio.desktop;bundle-version="2.0.11",
+- org.pathvisio.jgoodies.forms;bundle-version="1.2.0",
+- org.pathvisio.swingworker;bundle-version="1.1.0",
+- org.pathvisio.visualization;bundle-version="2.0.11",
+- org.bridgedb;bundle-version="1.1.0",
+- org.bridgedb.bio;bundle-version="1.1.0",
+- org.bridgedb.rdb;bundle-version="1.1.0",
+- org.bridgedb.rdb.construct;bundle-version="1.1.0",
+- org.bridgedb.gui;bundle-version="1.1.0"
++Bundle-ActivationPolicy: lazy
++Export-Package: org.pathvisio.gexplugin
+Index: modules/org.wikipathways.applet/META-INF/MANIFEST.MF
+===================================================================
+--- modules/org.wikipathways.applet/META-INF/MANIFEST.MF	(revision 3596)
++++ modules/org.wikipathways.applet/META-INF/MANIFEST.MF	(working copy)
+@@ -12,7 +12,6 @@
+  com.springsource.org.jdom;bundle-version="1.1.0",
+  org.pathvisio.xmlrpc.client;bundle-version="3.1.3",
+  org.pathvisio.xmlrpc.common;bundle-version="3.1.3",
+- org.pathvisio.xml.apis;bundle-version="1.7.0",
+  org.pathvisio.ws.commons.util;bundle-version="1.0.2",
+  org.bridgedb;bundle-version="1.1.0",
+  org.bridgedb.bio;bundle-version="1.1.0",
+Index: build-common.xml
+===================================================================
+--- build-common.xml	(revision 3596)
++++ build-common.xml	(working copy)
+@@ -35,7 +35,7 @@
+ 		<mkdir dir="resources"/>
+ 		<copy todir="build">
+ 			<fileset dir="resources">
+-				<include name="*"/>
++				<include name="**/*"/>
+ 			</fileset>
+ 		</copy>
+ 	</target>
+Index: pathvisio.bat
+===================================================================
+--- pathvisio.bat	(revision 3596)
++++ pathvisio.bat	(working copy)
+@@ -1,2 +1,3 @@
+ cd /d %~dp0
+-java -Xmx1024m -jar pathvisio.jar -p visplugins.jar %*
++
++java -Xmx1024m -jar modules/org.pathvisio.launcher.jar "$@"
